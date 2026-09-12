@@ -47,6 +47,7 @@ def _record_and_result(
     rejected_discovery_count: int = 0,
     blocking_services: tuple[str, ...] = (),
     error_code: str | None = None,
+    commit: bool = True,
 ) -> MonitorExecutionResult:
     record_monitor_run(
         session,
@@ -58,6 +59,7 @@ def _record_and_result(
         discovered_count=discovered_count,
         blocking_services=blocking_services,
         error_code=error_code,
+        commit=commit,
     )
     return MonitorExecutionResult(
         monitor_id=monitor.monitor_id,
@@ -79,6 +81,7 @@ def probe_monitor_once(
     finished_at: datetime,
     source_monitoring_enabled: bool = False,
     download_feed: DownloadFeed = download_trusted_document,
+    commit: bool = True,
 ) -> MonitorExecutionResult:
     """Run one bounded discovery-only monitor probe.
 
@@ -91,6 +94,10 @@ def probe_monitor_once(
     defaults to false. Callers must explicitly pass an operator-approved true
     value (normally from Settings.source_monitoring_enabled) before any network
     access is possible. Capacity and per-monitor policy are then evaluated.
+
+    ``commit=False`` is reserved for controlled validation callers that need to
+    inspect the staged monitor audit/queue delta before deciding whether to commit
+    or roll back the transaction. Normal callers keep the default atomic commit.
     """
     if not source_monitoring_enabled:
         return _record_and_result(
@@ -100,6 +107,7 @@ def probe_monitor_once(
             finished_at=finished_at,
             outcome=MonitorRunOutcome.DISABLED,
             reason="source_monitoring_disabled",
+            commit=commit,
         )
 
     decision = decide_monitor_run(monitor, capacity)
@@ -112,6 +120,7 @@ def probe_monitor_once(
             finished_at=finished_at,
             outcome=MonitorRunOutcome.DISABLED,
             reason="monitor_disabled",
+            commit=commit,
         )
 
     if decision.state is MonitorState.PAUSED_CAPACITY:
@@ -123,6 +132,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.PAUSED_CAPACITY,
             reason=decision.reason,
             blocking_services=decision.blocking_services,
+            commit=commit,
         )
 
     try:
@@ -136,6 +146,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.FAILED,
             reason="source_download_failed",
             error_code="transient_network_error",
+            commit=commit,
         )
     except httpx.HTTPError:
         return _record_and_result(
@@ -146,6 +157,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.FAILED,
             reason="source_download_failed",
             error_code="http_error",
+            commit=commit,
         )
     except ValueError:
         return _record_and_result(
@@ -156,6 +168,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.FAILED,
             reason="source_policy_rejected",
             error_code="source_policy_rejection",
+            commit=commit,
         )
 
     content_type = downloaded.content_type.split(";", 1)[0].lower()
@@ -168,6 +181,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.FAILED,
             reason="unexpected_feed_content_type",
             error_code="unexpected_feed_content_type",
+            commit=commit,
         )
 
     try:
@@ -185,6 +199,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.FAILED,
             reason="feed_discovery_failed",
             error_code="invalid_feed",
+            commit=commit,
         )
 
     if not discovery.items:
@@ -196,6 +211,7 @@ def probe_monitor_once(
             outcome=MonitorRunOutcome.NO_CHANGE,
             reason="no_allowlisted_feed_items",
             rejected_discovery_count=discovery.rejected_count,
+            commit=commit,
         )
 
     # Stage queue metadata in the same transaction as the monitor audit event.
@@ -217,4 +233,5 @@ def probe_monitor_once(
         reason="discovery_completed",
         discovered_count=len(discovery.items),
         rejected_discovery_count=discovery.rejected_count,
+        commit=commit,
     )

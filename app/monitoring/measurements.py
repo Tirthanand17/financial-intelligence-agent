@@ -42,28 +42,50 @@ def _measure_database_bytes(session: Session) -> int | None:
 
 
 def _measure_b2_bytes(client, bucket: str) -> int | None:
-    """Sum S3 object metadata without downloading object bodies."""
+    """Sum metadata for every stored B2 object version without downloading bodies.
+
+    Backblaze buckets can retain old versions after overwrites/deletes, and those
+    versions still consume storage. Measuring only ``ListObjectsV2`` would count
+    current objects and could understate real storage use. The B2 S3-compatible
+    API supports ``ListObjectVersions``, so capacity accounting deliberately sums
+    all returned ``Versions`` while ignoring zero-byte delete markers.
+    """
     total = 0
-    token: str | None = None
+    key_marker: str | None = None
+    version_id_marker: str | None = None
+
     try:
         while True:
             kwargs: dict[str, object] = {"Bucket": bucket, "MaxKeys": 1000}
-            if token:
-                kwargs["ContinuationToken"] = token
-            response = client.list_objects_v2(**kwargs)
-            for item in response.get("Contents", ()):
+            if key_marker:
+                kwargs["KeyMarker"] = key_marker
+            if version_id_marker:
+                kwargs["VersionIdMarker"] = version_id_marker
+
+            response = client.list_object_versions(**kwargs)
+            for item in response.get("Versions", ()):
                 size = int(item.get("Size", 0))
                 if size < 0:
                     return None
                 total += size
+
             if not response.get("IsTruncated"):
                 break
-            token_value = response.get("NextContinuationToken")
-            if not isinstance(token_value, str) or not token_value:
+
+            next_key_marker = response.get("NextKeyMarker")
+            if not isinstance(next_key_marker, str) or not next_key_marker:
                 return None
-            token = token_value
+            key_marker = next_key_marker
+
+            next_version_marker = response.get("NextVersionIdMarker")
+            version_id_marker = (
+                next_version_marker
+                if isinstance(next_version_marker, str) and next_version_marker
+                else None
+            )
     except Exception:
         return None
+
     return total
 
 
@@ -89,9 +111,9 @@ def measure_cloud_usage(
 ) -> CloudUsage:
     """Read current usage from the three required persistence services.
 
-    The operation is read-only: PostgreSQL database size, S3 object metadata, and
-    Qdrant collection point count. Failures are represented as unknown (`None`) so
-    capacity policy can fail closed rather than guessing.
+    The operation is read-only: PostgreSQL database size, all B2 object-version
+    metadata, and Qdrant collection point count. Failures are represented as
+    unknown (`None`) so capacity policy can fail closed rather than guessing.
     """
     return CloudUsage(
         supabase_bytes=_measure_database_bytes(session),

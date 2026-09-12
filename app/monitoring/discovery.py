@@ -1,11 +1,12 @@
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 import xml.etree.ElementTree as ET
 
-from app.sources.registry import validate_source_url
+from app.sources.registry import get_source, validate_source_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +21,7 @@ class DiscoveredFeedItem:
 class FeedDiscoveryResult:
     items: tuple[DiscoveredFeedItem, ...]
     rejected_count: int = 0
+    rejection_reasons: tuple[tuple[str, int], ...] = ()
 
 
 def _local_name(tag: str) -> str:
@@ -68,6 +70,44 @@ def _fingerprint(url: str, title: str | None, published: date | None) -> str:
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _normalize_feed_link(source_id: str, link: str) -> tuple[str | None, str | None]:
+    """Return an HTTPS allow-listed item URL or a symbolic rejection reason.
+
+    Some official legacy RSS feeds still publish ``http://`` item links even when
+    the same first-party host serves the page over HTTPS. We never fetch the HTTP
+    URL. Instead, only when the host is already explicitly allow-listed for this
+    trusted source, preserve the exact host/path/query and upgrade the scheme to
+    HTTPS before the normal source URL validator runs.
+
+    Cross-host links, non-HTTP(S) schemes, malformed URLs, and any upgraded URL
+    that still fails source policy remain rejected.
+    """
+    raw = link.strip()
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+
+    if parsed.scheme == "http":
+        try:
+            source = get_source(source_id)
+        except ValueError:
+            return None, "source_policy_rejection"
+
+        if not host or host not in source.allowed_hosts:
+            return None, "source_policy_rejection"
+
+        parsed = parsed._replace(scheme="https")
+        raw = urlunparse(parsed)
+    elif parsed.scheme != "https":
+        return None, "non_https"
+
+    try:
+        validate_source_url(source_id, raw)
+    except ValueError:
+        return None, "source_policy_rejection"
+
+    return raw, None
+
+
 def discover_feed_items(
     content: bytes,
     *,
@@ -77,8 +117,13 @@ def discover_feed_items(
     """Discover bounded, allow-listed item URLs from an RSS/Atom feed.
 
     This function never follows links. Every candidate item URL must independently
-    pass the selected source's HTTPS host allow-list before it is returned.
-    Duplicate links within the same feed are collapsed while preserving feed order.
+    resolve to the selected source's HTTPS host allow-list before it is returned.
+    A legacy HTTP link may only be upgraded in-memory to HTTPS when its hostname is
+    already explicitly allow-listed for that same source; the HTTP URL is never
+    requested. Duplicate links are collapsed while preserving feed order.
+
+    Rejections expose only symbolic aggregate reasons. They intentionally do not
+    retain rejected URLs, raw XML, request headers, or exception text.
     """
     if limit < 1 or limit > 100:
         raise ValueError("discovery limit must be between 1 and 100")
@@ -95,7 +140,7 @@ def discover_feed_items(
     ]
 
     items: list[DiscoveredFeedItem] = []
-    rejected_count = 0
+    rejection_reasons: Counter[str] = Counter()
     seen_urls: set[str] = set()
 
     for entry in entries:
@@ -104,21 +149,14 @@ def discover_feed_items(
 
         link = _entry_link(entry)
         if not link:
-            rejected_count += 1
+            rejection_reasons["missing_link"] += 1
             continue
 
-        parsed = urlparse(link)
-        if parsed.scheme != "https":
-            rejected_count += 1
+        normalized_url, rejection_reason = _normalize_feed_link(source_id, link)
+        if normalized_url is None:
+            rejection_reasons[rejection_reason or "source_policy_rejection"] += 1
             continue
 
-        try:
-            validate_source_url(source_id, link)
-        except ValueError:
-            rejected_count += 1
-            continue
-
-        normalized_url = link.strip()
         if normalized_url in seen_urls:
             continue
         seen_urls.add(normalized_url)
@@ -138,5 +176,6 @@ def discover_feed_items(
 
     return FeedDiscoveryResult(
         items=tuple(items),
-        rejected_count=rejected_count,
+        rejected_count=sum(rejection_reasons.values()),
+        rejection_reasons=tuple(sorted(rejection_reasons.items())),
     )

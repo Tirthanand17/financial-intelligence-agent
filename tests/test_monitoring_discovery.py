@@ -23,34 +23,82 @@ def test_discovers_allowlisted_rbi_items_without_following_links() -> None:
     result = discover_feed_items(content, source_id="rbi", limit=10)
 
     assert result.rejected_count == 0
+    assert result.rejection_reasons == ()
     assert len(result.items) == 2
     assert result.items[0].title == "Monetary Policy Statement"
     assert result.items[0].publication_date == date(2026, 6, 5)
     assert len(result.items[0].fingerprint) == 64
 
 
-def test_rejects_cross_host_and_non_https_items() -> None:
+def test_first_party_legacy_http_link_is_upgraded_to_https_without_following_http() -> None:
     content = b"""<rss><channel>
-      <item><title>Bad host</title><link>https://example.com/item</link></item>
-      <item><title>HTTP</title><link>http://www.rbi.org.in/item</link></item>
+      <item>
+        <title>Legacy RBI link</title>
+        <link>http://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=123</link>
+      </item>
+    </channel></rss>"""
+
+    result = discover_feed_items(content, source_id="rbi", limit=10)
+
+    assert result.rejected_count == 0
+    assert result.rejection_reasons == ()
+    assert [item.url for item in result.items] == [
+        "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx?prid=123"
+    ]
+
+
+def test_rejects_cross_host_http_and_non_http_schemes() -> None:
+    content = b"""<rss><channel>
+      <item><title>Bad HTTPS host</title><link>https://example.com/item</link></item>
+      <item><title>Bad HTTP host</title><link>http://example.com/item</link></item>
+      <item><title>FTP</title><link>ftp://www.rbi.org.in/item</link></item>
       <item><title>Good</title><link>https://www.rbi.org.in/item</link></item>
     </channel></rss>"""
 
     result = discover_feed_items(content, source_id="rbi", limit=10)
 
-    assert result.rejected_count == 2
+    assert result.rejected_count == 3
+    assert result.rejection_reasons == (
+        ("non_https", 1),
+        ("source_policy_rejection", 2),
+    )
     assert [item.url for item in result.items] == ["https://www.rbi.org.in/item"]
 
 
-def test_duplicate_feed_links_are_collapsed() -> None:
+def test_http_upgrade_does_not_allow_lookalike_host() -> None:
     content = b"""<rss><channel>
-      <item><title>One</title><link>https://www.rbi.org.in/item</link></item>
+      <item><title>Lookalike</title><link>http://www.rbi.org.in.example.com/item</link></item>
+    </channel></rss>"""
+
+    result = discover_feed_items(content, source_id="rbi", limit=10)
+
+    assert result.items == ()
+    assert result.rejected_count == 1
+    assert result.rejection_reasons == (("source_policy_rejection", 1),)
+
+
+def test_missing_link_is_reported_symbolically() -> None:
+    content = b"""<rss><channel>
+      <item><title>No link</title></item>
+    </channel></rss>"""
+
+    result = discover_feed_items(content, source_id="rbi", limit=10)
+
+    assert result.items == ()
+    assert result.rejected_count == 1
+    assert result.rejection_reasons == (("missing_link", 1),)
+
+
+def test_duplicate_feed_links_are_collapsed_after_https_normalization() -> None:
+    content = b"""<rss><channel>
+      <item><title>One</title><link>http://www.rbi.org.in/item</link></item>
       <item><title>Duplicate</title><link>https://www.rbi.org.in/item</link></item>
     </channel></rss>"""
 
     result = discover_feed_items(content, source_id="rbi", limit=10)
 
     assert len(result.items) == 1
+    assert result.items[0].url == "https://www.rbi.org.in/item"
 
 
 def test_discovery_is_bounded_by_monitor_limit() -> None:
