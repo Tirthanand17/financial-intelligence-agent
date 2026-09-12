@@ -5,8 +5,11 @@ import httpx
 
 
 API_BASE = "http://127.0.0.1:8000"
-DEFAULT_RBI_URL = "https://bulletin.rbi.org.in/"
-DEFAULT_QUESTION = "What topics and economic developments are covered in this RBI Bulletin?"
+DEFAULT_RBI_URL = (
+    "https://website.rbi.org.in/documents/d/rbi/"
+    "handbookg27022025d0f3f53f5d3c4310a6bb2f8ac2175d3a"
+)
+DEFAULT_QUESTION = "What is the purpose of this RBI regulations handbook?"
 
 
 def main() -> None:
