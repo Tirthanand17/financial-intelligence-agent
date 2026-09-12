@@ -39,11 +39,20 @@ def find_claim_by_fingerprint(session: Session, fingerprint: str) -> ClaimRecord
     return session.scalar(select(ClaimRecord).where(ClaimRecord.fingerprint == fingerprint))
 
 
-def save_claim(session: Session, claim: StructuredClaim) -> tuple[ClaimRecord, bool]:
+def save_claim(
+    session: Session,
+    claim: StructuredClaim,
+    *,
+    commit: bool = True,
+) -> tuple[ClaimRecord, bool]:
     """Persist one claim idempotently.
 
     Returns `(record, created)` so callers can distinguish a new claim from an
     already-known one. Verification/state promotion is deliberately separate.
+
+    `commit=False` lets an ingestion workflow stage several claims and the
+    document provenance record in one PostgreSQL transaction. The default keeps
+    the original standalone behaviour for direct callers and tests.
     """
     fingerprint = claim_fingerprint(claim)
     existing = find_claim_by_fingerprint(session, fingerprint)
@@ -69,6 +78,13 @@ def save_claim(session: Session, claim: StructuredClaim) -> tuple[ClaimRecord, b
         state=claim.state.value,
     )
     session.add(record)
-    session.commit()
-    session.refresh(record)
+
+    if commit:
+        session.commit()
+        session.refresh(record)
+    else:
+        # Flush makes the staged row visible to later duplicate checks in the
+        # same transaction without prematurely committing the whole ingestion.
+        session.flush()
+
     return record, True
