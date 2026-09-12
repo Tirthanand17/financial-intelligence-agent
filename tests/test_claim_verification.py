@@ -63,6 +63,23 @@ def test_two_independent_sources_agree_and_verify() -> None:
     assert decision.supporting_source_ids == ("rbi", "world_bank")
 
 
+def test_equivalent_percent_wording_verifies_by_numeric_value() -> None:
+    target = _claim()
+    corroborating = _claim(
+        source_id="ddnews",
+        source_url="https://ddnews.gov.in/en/example/",
+        document_id="22222222-2222-2222-2222-222222222222",
+        value_text="5.25 per cent",
+        value_numeric=Decimal("5.25"),
+        evidence_text="RBI keeps repo rate unchanged at 5.25 per cent",
+    )
+
+    decision = assess_claim(target, [target, corroborating])
+
+    assert decision.state is ClaimState.VERIFIED
+    assert decision.supporting_source_ids == ("ddnews", "rbi")
+
+
 def test_same_scope_disagreement_is_conflicted() -> None:
     target = _claim()
     conflicting = _claim(
