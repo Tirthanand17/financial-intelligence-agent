@@ -4,7 +4,11 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     if overlap < 0 or overlap >= chunk_size:
         raise ValueError("overlap must be >= 0 and smaller than chunk_size")
 
-    normalized = " ".join(text.split())
+    # Preserve meaningful source line boundaries while normalizing repeated
+    # whitespace inside each line. This gives the QA layer cleaner evidence
+    # units for HTML tables, rate lists, headings, and PDF text.
+    lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+    normalized = "\n".join(lines)
     if not normalized:
         return []
 
@@ -15,7 +19,9 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     while start < length:
         end = min(start + chunk_size, length)
         if end < length:
-            boundary = normalized.rfind(" ", start, end)
+            space_boundary = normalized.rfind(" ", start, end)
+            newline_boundary = normalized.rfind("\n", start, end)
+            boundary = max(space_boundary, newline_boundary)
             if boundary > start + chunk_size // 2:
                 end = boundary
 
