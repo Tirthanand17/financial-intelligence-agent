@@ -211,3 +211,83 @@ def validate_controlled_discovery_delta(
         passed=True,
         reason="discovery_only_write_boundary_validated",
     )
+
+
+def validate_single_queue_processing_delta(
+    before: MonitoringDatabaseSnapshot,
+    after: MonitoringDatabaseSnapshot,
+    *,
+    selected_count: int,
+    ingested_count: int,
+    duplicate_count: int,
+    failed_count: int,
+    rejected_count: int,
+) -> ControlledPersistenceDecision:
+    """Validate the database boundary for one explicit Phase 7 queue write.
+
+    This validator is intentionally narrow. Exactly one pending discovery may be
+    selected, exactly one item must resolve as newly indexed or already indexed,
+    the discovery table identity/count must stay stable, monitoring audit/state
+    tables must not be changed by the queue processor, and TRUSTED promotion must
+    remain impossible while the global trust gate is off.
+
+    Claim, attribution, supersession and verification counts are allowed only to
+    increase because the normal trusted ingestion pipeline may derive new audited
+    knowledge from the one document.
+    """
+    blockers: list[str] = []
+
+    if selected_count != 1:
+        blockers.append("processing:selected_count_not_one")
+    if ingested_count + duplicate_count != 1:
+        blockers.append("processing:terminal_success_count_not_one")
+    if failed_count != 0:
+        blockers.append("processing:failed_count_nonzero")
+    if rejected_count != 0:
+        blockers.append("processing:rejected_count_nonzero")
+
+    if after.monitor_discoveries != before.monitor_discoveries:
+        blockers.append("database:discovery_count_changed")
+    if after.monitor_runs != before.monitor_runs:
+        blockers.append("database:monitor_run_count_changed")
+    if after.monitor_states != before.monitor_states:
+        blockers.append("database:monitor_state_count_changed")
+    if after.claim_trust_events != before.claim_trust_events:
+        blockers.append("database:trust_event_count_changed")
+
+    monotonic_counts = (
+        ("documents", before.documents, after.documents),
+        ("claims", before.claims, after.claims),
+        (
+            "claim_entity_attributions",
+            before.claim_entity_attributions,
+            after.claim_entity_attributions,
+        ),
+        ("claim_supersessions", before.claim_supersessions, after.claim_supersessions),
+        (
+            "claim_verification_events",
+            before.claim_verification_events,
+            after.claim_verification_events,
+        ),
+    )
+    for name, old, new in monotonic_counts:
+        if new < old:
+            blockers.append(f"database:{name}_decreased")
+
+    document_delta = after.documents - before.documents
+    if ingested_count == 1 and document_delta != 1:
+        blockers.append("database:new_ingestion_document_delta_not_one")
+    if duplicate_count == 1 and document_delta != 0:
+        blockers.append("database:duplicate_document_delta_not_zero")
+
+    if blockers:
+        return ControlledPersistenceDecision(
+            passed=False,
+            reason="single_queue_processing_validation_failed",
+            blockers=tuple(dict.fromkeys(blockers)),
+        )
+
+    return ControlledPersistenceDecision(
+        passed=True,
+        reason="single_queue_processing_validated",
+    )
