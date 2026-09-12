@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.claims.eligibility import filter_eligible_claims
 from app.claims.extractor import extract_structured_claims
 from app.claims.storage import save_claim
+from app.claims.trust_storage import reconcile_trust_for_peer_group
 from app.claims.verification_storage import reconcile_verification_for_claim
 from app.claims.versioning_storage import apply_supersession_for_newer_claim
 from app.core.config import get_settings
@@ -39,21 +40,27 @@ def _extract_claim_candidates(
     return filter_eligible_claims(claims)
 
 
-def _stage_claims(session: Session, claims) -> tuple[int, int, int]:
-    """Persist claims, version history, and verification in one transaction.
+def _stage_claims(
+    session: Session,
+    claims,
+    *,
+    trust_promotion_enabled: bool = False,
+) -> tuple[int, int, int, int]:
+    """Persist claims and lifecycle transitions in one transaction.
 
     Supersession is applied before cross-source verification so obsolete
     source-local versions cannot be counted as active corroborating evidence.
-    Both steps are attempted for newly created and already-known claims, making
-    ingestion backward-compatible and idempotent for older data.
+    Verification then reconciles the comparable peer group.
 
-    TRUSTED promotion is still intentionally not automatic here. Phase 4 first
-    validates real dated cross-source evidence before trust reconciliation is
-    enabled in the normal ingestion path.
+    Phase 4 trust reconciliation is fully wired but remains behind an explicit
+    disabled-by-default safety gate. When enabled after live evidence validation,
+    the whole peer group is revisited so a previously stored authority-A primary
+    claim can be promoted when an independent corroborating source arrives later.
     """
     created_count = 0
     supersessions_created = 0
     verification_events_created = 0
+    trust_events_created = 0
 
     for claim in claims:
         record, created = save_claim(session, claim, commit=False)
@@ -74,7 +81,20 @@ def _stage_claims(session: Session, claims) -> tuple[int, int, int]:
         )
         verification_events_created += len(verification_events)
 
-    return created_count, supersessions_created, verification_events_created
+        if trust_promotion_enabled:
+            trust_events = reconcile_trust_for_peer_group(
+                session,
+                record,
+                commit=False,
+            )
+            trust_events_created += len(trust_events)
+
+    return (
+        created_count,
+        supersessions_created,
+        verification_events_created,
+        trust_events_created,
+    )
 
 
 def _backfill_existing_document_claims(
@@ -83,7 +103,8 @@ def _backfill_existing_document_claims(
     *,
     chunk_size: int,
     chunk_overlap: int,
-) -> tuple[int, int, int, int]:
+    trust_promotion_enabled: bool = False,
+) -> tuple[int, int, int, int, int]:
     """Idempotently derive claims for an already preserved document.
 
     Existing raw evidence is reread from private object storage rather than
@@ -115,18 +136,27 @@ def _backfill_existing_document_claims(
         created_count,
         supersessions_created,
         verification_events_created,
-    ) = _stage_claims(session, claims)
+        trust_events_created,
+    ) = _stage_claims(
+        session,
+        claims,
+        trust_promotion_enabled=trust_promotion_enabled,
+    )
     session.commit()
     return (
         len(claims),
         created_count,
         supersessions_created,
         verification_events_created,
+        trust_events_created,
     )
 
 
 def ingest_url(source_id: str, url: str) -> dict[str, object]:
     settings = get_settings()
+    trust_promotion_enabled = bool(
+        getattr(settings, "trust_promotion_enabled", False)
+    )
     downloaded = download_trusted_document(source_id, url)
 
     with get_session() as session:
@@ -137,11 +167,13 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
                 claims_created,
                 supersessions_created,
                 verification_events_created,
+                trust_events_created,
             ) = _backfill_existing_document_claims(
                 session,
                 existing,
                 chunk_size=settings.chunk_size_chars,
                 chunk_overlap=settings.chunk_overlap_chars,
+                trust_promotion_enabled=trust_promotion_enabled,
             )
             return {
                 "status": "already_indexed",
@@ -153,6 +185,7 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
                 "claims_created": claims_created,
                 "supersessions_created": supersessions_created,
                 "verification_events_created": verification_events_created,
+                "trust_events_created": trust_events_created,
                 "sha256": existing.sha256,
             }
 
@@ -220,7 +253,12 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
             claims_created,
             supersessions_created,
             verification_events_created,
-        ) = _stage_claims(session, claims)
+            trust_events_created,
+        ) = _stage_claims(
+            session,
+            claims,
+            trust_promotion_enabled=trust_promotion_enabled,
+        )
         session.commit()
 
     return {
@@ -234,6 +272,7 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
         "claims_created": claims_created,
         "supersessions_created": supersessions_created,
         "verification_events_created": verification_events_created,
+        "trust_events_created": trust_events_created,
         "sha256": downloaded.sha256,
         "retrieved_at": downloaded.retrieved_at.isoformat(),
         "object_key": object_key,
