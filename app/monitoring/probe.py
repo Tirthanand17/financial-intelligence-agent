@@ -34,6 +34,7 @@ class ManualFeedProbeResult:
     reason: str
     discovered_count: int = 0
     rejected_count: int = 0
+    rejection_reasons: tuple[tuple[str, int], ...] = ()
     content_sha256: str | None = None
     latest_publication_date: date | None = None
 
@@ -103,6 +104,7 @@ def probe_feed_read_only(
         reason="feed_probe_completed",
         discovered_count=len(discovery.items),
         rejected_count=discovery.rejected_count,
+        rejection_reasons=discovery.rejection_reasons,
         content_sha256=downloaded.sha256,
         latest_publication_date=latest_date,
     )
