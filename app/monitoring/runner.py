@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.ingestion.downloader import download_trusted_document
 from app.monitoring.discovery import discover_feed_items
+from app.monitoring.discovery_storage import record_discovered_items
 from app.monitoring.models import (
     CapacityDecision,
     MonitorDefinition,
@@ -83,8 +84,8 @@ def probe_monitor_once(
 
     Phase 5 begins with observation before autonomous ingestion. This runner can
     fetch only the monitor's explicitly configured allow-listed feed, discover a
-    bounded number of allow-listed item URLs, and persist secret-free operational
-    telemetry. It never follows or ingests discovered item links.
+    bounded number of allow-listed item URLs, and persist those discoveries as
+    pending queue metadata. It never follows or ingests discovered item links.
 
     The global source-monitoring gate is checked before every other decision and
     defaults to false. Callers must explicitly pass an operator-approved true
@@ -196,6 +197,16 @@ def probe_monitor_once(
             reason="no_allowlisted_feed_items",
             rejected_discovery_count=discovery.rejected_count,
         )
+
+    # Stage queue metadata in the same transaction as the monitor audit event.
+    # No discovered URL is fetched here.
+    record_discovered_items(
+        session,
+        monitor,
+        discovery.items,
+        seen_at=finished_at,
+        commit=False,
+    )
 
     return _record_and_result(
         session,
