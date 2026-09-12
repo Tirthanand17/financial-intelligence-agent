@@ -1,3 +1,4 @@
+from app.claims.query import StructuredClaimResolution
 from app.services import qa
 from app.services.qa import _extractive_answer
 
@@ -63,6 +64,7 @@ def test_answer_question_rates_exact_official_structured_fact_high_confidence(mo
         }
     ]
 
+    monkeypatch.setattr(qa, "_structured_claim_resolution", lambda *args, **kwargs: None)
     monkeypatch.setattr(qa, "search_chunks", lambda *args, **kwargs: matches)
 
     result = qa.answer_question(
@@ -85,9 +87,65 @@ def test_answer_question_does_not_overstate_weak_unstructured_evidence(monkeypat
         }
     ]
 
+    monkeypatch.setattr(qa, "_structured_claim_resolution", lambda *args, **kwargs: None)
     monkeypatch.setattr(qa, "search_chunks", lambda *args, **kwargs: matches)
 
     result = qa.answer_question("What changed in monetary policy?", source_id="rbi")
 
     assert result["confidence"] == "low"
     assert result["confidence_basis"] == "weak_semantic_retrieval"
+
+
+def test_answer_question_prefers_verified_structured_claim_without_vector_search(monkeypatch) -> None:
+    resolution = StructuredClaimResolution(
+        status="answer",
+        answer="Policy Repo Rate : 5.25%",
+        confidence="high",
+        confidence_basis="verified_structured_claim",
+        evidence=(
+            {
+                "source_id": "rbi",
+                "source_url": "https://www.rbi.org.in/",
+                "metric": "Policy Repo Rate",
+                "value": "5.25%",
+                "state": "verified",
+            },
+        ),
+    )
+    monkeypatch.setattr(qa, "_structured_claim_resolution", lambda *args, **kwargs: resolution)
+
+    def _unexpected_vector_search(*args, **kwargs):
+        raise AssertionError("vector search should not run when structured claims resolve the question")
+
+    monkeypatch.setattr(qa, "search_chunks", _unexpected_vector_search)
+
+    result = qa.answer_question("What is the policy repo rate?", source_id="rbi")
+
+    assert result["answer_mode"] == "structured_claim_grounded"
+    assert result["answer"] == "Policy Repo Rate : 5.25%"
+    assert result["confidence_basis"] == "verified_structured_claim"
+
+
+def test_answer_question_surfaces_structured_conflict_instead_of_guessing(monkeypatch) -> None:
+    resolution = StructuredClaimResolution(
+        status="conflict",
+        answer="Conflicting structured claims exist for Policy Repo Rate; no single value is presented as current fact.",
+        confidence="low",
+        confidence_basis="conflicting_structured_claims",
+        evidence=(
+            {"source_id": "rbi", "value": "5.25%", "state": "conflicted"},
+            {"source_id": "imf", "value": "5.50%", "state": "conflicted"},
+        ),
+    )
+    monkeypatch.setattr(qa, "_structured_claim_resolution", lambda *args, **kwargs: resolution)
+
+    def _unexpected_vector_search(*args, **kwargs):
+        raise AssertionError("vector search should not bypass a structured conflict")
+
+    monkeypatch.setattr(qa, "search_chunks", _unexpected_vector_search)
+
+    result = qa.answer_question("What is the policy repo rate?")
+
+    assert result["answer_mode"] == "structured_claim_conflict"
+    assert result["confidence"] == "low"
+    assert result["confidence_basis"] == "conflicting_structured_claims"

@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime, timezone
 from functools import lru_cache
+from decimal import Decimal
 
-from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
+from sqlalchemy import Date, DateTime, Float, Integer, Numeric, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.core.config import get_settings
@@ -26,6 +27,90 @@ class DocumentRecord(Base):
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     chunk_count: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(32), default="indexed")
+
+
+class ClaimRecord(Base):
+    """Persisted, source-grounded financial claim.
+
+    Claim state is stored as text so state transitions can be handled explicitly
+    by the Phase 2 verification layer instead of being coupled to a database enum.
+    """
+
+    __tablename__ = "claims"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+
+    document_id: Mapped[str] = mapped_column(String(36), index=True)
+    source_id: Mapped[str] = mapped_column(String(64), index=True)
+    source_url: Mapped[str] = mapped_column(Text)
+
+    entity: Mapped[str] = mapped_column(String(255), index=True)
+    metric: Mapped[str] = mapped_column(String(255), index=True)
+    value_text: Mapped[str] = mapped_column(Text)
+    value_numeric: Mapped[Decimal | None] = mapped_column(Numeric(30, 10), nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    publication_date = mapped_column(Date, nullable=True, index=True)
+    effective_date = mapped_column(Date, nullable=True, index=True)
+
+    evidence_text: Mapped[str] = mapped_column(Text)
+    evidence_chunk_index: Mapped[int] = mapped_column(Integer)
+
+    confidence: Mapped[float] = mapped_column(Float)
+    state: Mapped[str] = mapped_column(String(32), index=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class ClaimSupersessionRecord(Base):
+    """Audit trail linking an older claim to the newer claim that replaced it.
+
+    This is a separate table so Phase 2 can add version history to an existing
+    deployment without altering the already-created `claims` table. The older
+    claim remains in place and only its state changes to `superseded`.
+    """
+
+    __tablename__ = "claim_supersessions"
+
+    older_claim_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    newer_claim_id: Mapped[str] = mapped_column(String(36), index=True)
+    newer_document_id: Mapped[str] = mapped_column(String(36), index=True)
+    temporal_kind: Mapped[str] = mapped_column(String(32))
+    older_date: Mapped[date] = mapped_column(Date)
+    newer_date: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class ClaimVerificationEventRecord(Base):
+    """Audit trail for automatic verification/conflict state transitions.
+
+    Events are append-only. The current state remains on `claims`, while this
+    table preserves why an automatic transition occurred and which independent
+    source IDs supported or conflicted with the claim at that time.
+    """
+
+    __tablename__ = "claim_verification_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    claim_id: Mapped[str] = mapped_column(String(36), index=True)
+    from_state: Mapped[str] = mapped_column(String(32))
+    to_state: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str] = mapped_column(String(128))
+    supporting_source_ids: Mapped[str] = mapped_column(Text)
+    conflicting_source_ids: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
 
 @lru_cache
