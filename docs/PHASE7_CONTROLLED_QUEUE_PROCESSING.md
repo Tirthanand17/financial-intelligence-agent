@@ -69,11 +69,21 @@ The limits above are the previously validated conservative project safety ceilin
 
 The next checkpoint persists **at most one** pending discovery and is still not a scheduler or autonomous worker.
 
-Before writing, the script repeats the in-memory preflight. The persistence download must then have the exact same SHA-256 as the preflighted bytes. `ingest_url(..., expected_sha256=...)` checks this before any database, object-store, or vector-store write. If the public source changes between preflight and persistence download, the operation fails closed.
+The first live write attempt exposed an important property of the RBI HTML page: its raw HTML bytes can vary between requests even when the accepted article content is effectively the same. The read-only preflight was 113676 bytes, while a later preflight was 113679 bytes. A second download inside ingestion therefore failed the exact-hash guard before any knowledge/storage/vector write. The queue recorded a symbolic validation failure, and measured deltas remained zero for documents, claims, B2 and Qdrant.
+
+That failure was safe but showed that a two-download design creates an unnecessary time-of-check/time-of-use problem for dynamic HTML. Phase 7 now uses a stronger boundary:
+
+1. perform exactly one trusted public-source download;
+2. validate those bytes fully in memory through URL policy, extraction, challenge-page rejection, chunking, publication-date parsing, and claim eligibility;
+3. retain the accepted `DownloadedDocument` only in memory and exclude its raw bytes from normal object representation;
+4. pass those **exact same validated bytes** into the normal persistence pipeline; and
+5. revalidate source/final URLs plus the expected SHA-256 before any persistence begins.
+
+This means controlled ingestion no longer needs a second RBI request. It does not weaken the hash requirement; instead it guarantees that the bytes persisted are exactly the bytes that passed preflight.
 
 The controlled write calls the existing bounded queue processor for exactly one item and then reconciles:
 
-- discovery row identity, status, attempt counter, and document linkage;
+- discovery row identity, status, attempt counter, symbolic error code, and document linkage;
 - document, claim, attribution, supersession, verification, and trust-event counts;
 - Backblaze B2 byte delta;
 - Qdrant point delta; and
@@ -81,7 +91,7 @@ The controlled write calls the existing bounded queue processor for exactly one 
 
 A successful new document must produce exactly one new document row, B2 growth equal to the preflighted raw byte count, and Qdrant growth equal to the preflighted chunk count. A duplicate must create no new document, object, or vector points. Trust-event count must remain unchanged in both cases.
 
-Because PostgreSQL, B2, and Qdrant do not share one atomic transaction, a detected post-write mismatch is reported as `RECONCILIATION-REQUIRED`. Evidence is preserved rather than silently deleted.
+Because PostgreSQL, B2, and Qdrant do not share one atomic transaction, a detected post-write mismatch is reported as `RECONCILIATION-REQUIRED`. Existing data is preserved rather than silently deleted.
 
 ## Controlled one-item command
 
@@ -99,6 +109,6 @@ python scripts/phase7_controlled_ingest_one.py --allow-network --allow-write
 
 ## Why this remains controlled
 
-The existing ingestion pipeline writes to three independent systems: private object storage, Qdrant, and PostgreSQL. Those systems do not share one atomic transaction. Phase 7 therefore advances in bounded checkpoints: observe the real queued source shape, lock the persistence download to the approved preflight hash, process exactly one queue item, and reconcile every affected store before any recurring worker is considered.
+The existing ingestion pipeline writes to three independent systems: private object storage, Qdrant, and PostgreSQL. Those systems do not share one atomic transaction. Phase 7 therefore advances in bounded checkpoints: observe the real queued source shape, preserve the exact preflighted bytes in memory, process exactly one queue item, and reconcile every affected store before any recurring worker is considered.
 
 Automatic queue ingestion remains disabled until this real one-item write boundary has also been validated.
