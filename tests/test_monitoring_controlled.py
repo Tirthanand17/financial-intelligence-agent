@@ -1,8 +1,10 @@
 from dataclasses import replace
 
 from app.monitoring.controlled import (
+    DiscoveryObservation,
     MonitoringDatabaseSnapshot,
     validate_controlled_discovery_delta,
+    validate_idempotent_reobservation,
 )
 from app.monitoring.models import MonitorExecutionResult, MonitorRunOutcome
 
@@ -63,6 +65,73 @@ def test_existing_queue_items_can_be_reobserved_without_new_rows() -> None:
     )
 
     assert decision.passed is True
+
+
+def test_idempotent_reobservation_preserves_identity_and_increments_once() -> None:
+    before = {
+        "https://www.rbi.org.in/1": DiscoveryObservation(
+            record_id="row-1",
+            seen_count=1,
+            status="pending",
+            document_id=None,
+        ),
+        "https://www.rbi.org.in/2": DiscoveryObservation(
+            record_id="row-2",
+            seen_count=4,
+            status="pending",
+            document_id=None,
+        ),
+    }
+    staged = {
+        "https://www.rbi.org.in/1": replace(before["https://www.rbi.org.in/1"], seen_count=2),
+        "https://www.rbi.org.in/2": replace(before["https://www.rbi.org.in/2"], seen_count=5),
+    }
+
+    decision = validate_idempotent_reobservation(
+        before,
+        staged,
+        expected_urls=("https://www.rbi.org.in/1", "https://www.rbi.org.in/2"),
+    )
+
+    assert decision.passed is True
+    assert decision.reason == "idempotent_reobservation_validated"
+
+
+def test_idempotent_reobservation_rejects_new_row_or_status_change() -> None:
+    before = {
+        "https://www.rbi.org.in/1": DiscoveryObservation(
+            record_id="row-1",
+            seen_count=1,
+            status="pending",
+            document_id=None,
+        )
+    }
+    staged = {
+        "https://www.rbi.org.in/1": DiscoveryObservation(
+            record_id="different-row",
+            seen_count=2,
+            status="processed",
+            document_id="doc-1",
+        ),
+        "https://www.rbi.org.in/2": DiscoveryObservation(
+            record_id="row-2",
+            seen_count=1,
+            status="pending",
+            document_id=None,
+        ),
+    }
+
+    decision = validate_idempotent_reobservation(
+        before,
+        staged,
+        expected_urls=("https://www.rbi.org.in/1", "https://www.rbi.org.in/2"),
+    )
+
+    assert decision.passed is False
+    assert "reobservation:row_identity_changed" in decision.blockers
+    assert "reobservation:status_changed" in decision.blockers
+    assert "reobservation:document_link_changed" in decision.blockers
+    assert "reobservation:missing_existing_row" in decision.blockers
 
 
 def test_document_or_claim_write_fails_validation() -> None:
