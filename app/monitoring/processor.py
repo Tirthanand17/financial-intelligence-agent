@@ -38,6 +38,153 @@ def _mark_attempt(
     record.last_error_code = error_code
 
 
+def _maybe_commit(session: Session, commit: bool) -> None:
+    if commit:
+        session.commit()
+
+
+def _process_record(
+    session: Session,
+    record: SourceMonitorDiscoveryRecord,
+    *,
+    now: datetime,
+    ingest: IngestUrl,
+    commit: bool,
+) -> DiscoveryProcessingResult:
+    try:
+        validate_source_url(record.source_id, record.url)
+    except ValueError:
+        record.status = "rejected"
+        _mark_attempt(record, now=now, error_code="source_policy_rejection")
+        _maybe_commit(session, commit)
+        return DiscoveryProcessingResult(
+            reason="processing_completed",
+            selected_count=1,
+            rejected_count=1,
+        )
+
+    try:
+        result = ingest(record.source_id, record.url)
+    except ConnectionError:
+        _mark_attempt(record, now=now, error_code="transient_network_error")
+        _maybe_commit(session, commit)
+        return DiscoveryProcessingResult(
+            reason="processing_completed",
+            selected_count=1,
+            failed_count=1,
+        )
+    except httpx.HTTPError:
+        _mark_attempt(record, now=now, error_code="http_error")
+        _maybe_commit(session, commit)
+        return DiscoveryProcessingResult(
+            reason="processing_completed",
+            selected_count=1,
+            failed_count=1,
+        )
+    except ValueError:
+        _mark_attempt(record, now=now, error_code="ingestion_validation_error")
+        _maybe_commit(session, commit)
+        return DiscoveryProcessingResult(
+            reason="processing_completed",
+            selected_count=1,
+            failed_count=1,
+        )
+    except RuntimeError:
+        _mark_attempt(record, now=now, error_code="ingestion_runtime_error")
+        _maybe_commit(session, commit)
+        return DiscoveryProcessingResult(
+            reason="processing_completed",
+            selected_count=1,
+            failed_count=1,
+        )
+
+    status = result.get("status")
+    document_id = result.get("document_id")
+    if status not in {"indexed", "already_indexed"} or not isinstance(document_id, str):
+        _mark_attempt(record, now=now, error_code="unexpected_ingestion_result")
+        _maybe_commit(session, commit)
+        return DiscoveryProcessingResult(
+            reason="processing_completed",
+            selected_count=1,
+            failed_count=1,
+        )
+
+    record.document_id = document_id
+    record.status = "ingested" if status == "indexed" else "duplicate"
+    _mark_attempt(record, now=now, error_code=None)
+    _maybe_commit(session, commit)
+    return DiscoveryProcessingResult(
+        reason="processing_completed",
+        selected_count=1,
+        ingested_count=1 if status == "indexed" else 0,
+        duplicate_count=1 if status == "already_indexed" else 0,
+    )
+
+
+def _gate_processing(
+    monitor: MonitorDefinition,
+    capacity: CapacityDecision,
+    *,
+    source_monitoring_enabled: bool,
+    source_auto_ingest_enabled: bool,
+) -> DiscoveryProcessingResult | None:
+    if not source_monitoring_enabled:
+        return DiscoveryProcessingResult(reason="source_monitoring_disabled")
+    if not source_auto_ingest_enabled:
+        return DiscoveryProcessingResult(reason="source_auto_ingest_disabled")
+
+    decision = decide_monitor_run(monitor, capacity)
+    if decision.state is MonitorState.DISABLED:
+        return DiscoveryProcessingResult(reason="monitor_disabled")
+    if decision.state is MonitorState.PAUSED_CAPACITY:
+        return DiscoveryProcessingResult(
+            reason=decision.reason,
+            blocking_services=decision.blocking_services,
+        )
+    return None
+
+
+def process_specific_pending_discovery(
+    session: Session,
+    monitor: MonitorDefinition,
+    capacity: CapacityDecision,
+    *,
+    record_id: str,
+    now: datetime,
+    source_monitoring_enabled: bool = False,
+    source_auto_ingest_enabled: bool = False,
+    ingest: IngestUrl = ingest_url,
+) -> DiscoveryProcessingResult:
+    """Process exactly one named pending queue row behind the normal safety gates.
+
+    This exact-record entry point exists for controlled canaries and recovery work
+    where selecting a different pending row would violate the approved write
+    boundary. It does not weaken source policy, capacity policy, or the two global
+    monitoring/auto-ingest gates.
+    """
+    blocked = _gate_processing(
+        monitor,
+        capacity,
+        source_monitoring_enabled=source_monitoring_enabled,
+        source_auto_ingest_enabled=source_auto_ingest_enabled,
+    )
+    if blocked is not None:
+        return blocked
+
+    record = session.scalar(
+        select(SourceMonitorDiscoveryRecord).where(
+            SourceMonitorDiscoveryRecord.id == record_id,
+            SourceMonitorDiscoveryRecord.monitor_id == monitor.monitor_id,
+            SourceMonitorDiscoveryRecord.source_id == monitor.source_id,
+            SourceMonitorDiscoveryRecord.status == "pending",
+        )
+    )
+    if record is None:
+        return DiscoveryProcessingResult(reason="pending_discovery_not_found")
+
+    return _process_record(session, record, now=now, ingest=ingest, commit=True)
+
+
 def process_pending_discoveries(
     session: Session,
     monitor: MonitorDefinition,
@@ -58,20 +205,16 @@ def process_pending_discoveries(
 
     Operational failures persist only symbolic error codes. Failed items remain
     pending for a later retry; policy-rejected URLs are terminally marked rejected.
+    The original batch path preserves its one-commit queue-transition semantics.
     """
-    if not source_monitoring_enabled:
-        return DiscoveryProcessingResult(reason="source_monitoring_disabled")
-    if not source_auto_ingest_enabled:
-        return DiscoveryProcessingResult(reason="source_auto_ingest_disabled")
-
-    decision = decide_monitor_run(monitor, capacity)
-    if decision.state is MonitorState.DISABLED:
-        return DiscoveryProcessingResult(reason="monitor_disabled")
-    if decision.state is MonitorState.PAUSED_CAPACITY:
-        return DiscoveryProcessingResult(
-            reason=decision.reason,
-            blocking_services=decision.blocking_services,
-        )
+    blocked = _gate_processing(
+        monitor,
+        capacity,
+        source_monitoring_enabled=source_monitoring_enabled,
+        source_auto_ingest_enabled=source_auto_ingest_enabled,
+    )
+    if blocked is not None:
+        return blocked
 
     effective_limit = monitor.max_new_documents_per_run if limit is None else limit
     if effective_limit < 1 or effective_limit > monitor.max_new_documents_per_run:
@@ -99,47 +242,17 @@ def process_pending_discoveries(
     rejected_count = 0
 
     for record in records:
-        try:
-            validate_source_url(record.source_id, record.url)
-        except ValueError:
-            record.status = "rejected"
-            _mark_attempt(record, now=now, error_code="source_policy_rejection")
-            rejected_count += 1
-            continue
-
-        try:
-            result = ingest(record.source_id, record.url)
-        except ConnectionError:
-            _mark_attempt(record, now=now, error_code="transient_network_error")
-            failed_count += 1
-            continue
-        except httpx.HTTPError:
-            _mark_attempt(record, now=now, error_code="http_error")
-            failed_count += 1
-            continue
-        except ValueError:
-            _mark_attempt(record, now=now, error_code="ingestion_validation_error")
-            failed_count += 1
-            continue
-        except RuntimeError:
-            _mark_attempt(record, now=now, error_code="ingestion_runtime_error")
-            failed_count += 1
-            continue
-
-        status = result.get("status")
-        document_id = result.get("document_id")
-        if status not in {"indexed", "already_indexed"} or not isinstance(document_id, str):
-            _mark_attempt(record, now=now, error_code="unexpected_ingestion_result")
-            failed_count += 1
-            continue
-
-        record.document_id = document_id
-        record.status = "ingested" if status == "indexed" else "duplicate"
-        _mark_attempt(record, now=now, error_code=None)
-        if status == "indexed":
-            ingested_count += 1
-        else:
-            duplicate_count += 1
+        result = _process_record(
+            session,
+            record,
+            now=now,
+            ingest=ingest,
+            commit=False,
+        )
+        ingested_count += result.ingested_count
+        duplicate_count += result.duplicate_count
+        failed_count += result.failed_count
+        rejected_count += result.rejected_count
 
     session.commit()
     return DiscoveryProcessingResult(
