@@ -123,10 +123,10 @@ def test_monitor_frequency_and_per_run_volume_are_bounded() -> None:
         )
 
 
-def test_monitor_registry_is_allowlisted_and_disabled_by_default() -> None:
+def test_monitor_registry_is_allowlisted_and_ready_behind_global_gate() -> None:
     validate_monitor_registry()
     monitor = get_monitor("rbi-press-releases-rss")
 
     assert monitor.source_id == "rbi"
-    assert monitor.enabled is False
+    assert monitor.enabled is True
     assert monitor.interval_minutes == 60
