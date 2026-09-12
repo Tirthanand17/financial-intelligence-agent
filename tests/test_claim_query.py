@@ -186,6 +186,39 @@ def test_source_filter_limits_structured_resolution() -> None:
     assert {item["source_id"] for item in result.evidence} == {"rbi"}
 
 
+def test_structured_evidence_exposes_entity_attribution_provenance() -> None:
+    engine = _engine()
+    claim = _claim(
+        source_id="ddnews",
+        document_id="33333333-3333-3333-3333-333333333333",
+        state=ClaimState.VERIFIED,
+    ).model_copy(
+        update={
+            "entity_attribution_basis": "explicit_local_alias",
+            "entity_source_default": "DD News",
+            "entity_matched_aliases": ("RBI",),
+            "entity_evidence_text": "RBI Policy Repo Rate : 5.25%",
+        }
+    )
+
+    with Session(engine) as session:
+        save_claim(session, claim)
+        result = resolve_structured_claim_question(
+            session,
+            "What is the policy repo rate?",
+        )
+
+    assert result is not None
+    assert result.status == "answer"
+    assert len(result.evidence) == 1
+    evidence = result.evidence[0]
+    assert evidence["entity_attribution_basis"] == "explicit_local_alias"
+    assert evidence["entity_source_default"] == "DD News"
+    assert evidence["entity_matched_aliases"] == ("RBI",)
+    assert evidence["entity_ambiguous_candidates"] == ()
+    assert evidence["entity_attribution_evidence"] == "RBI Policy Repo Rate : 5.25%"
+
+
 def test_unrelated_question_falls_back_to_other_retrieval() -> None:
     engine = _engine()
     with Session(engine) as session:

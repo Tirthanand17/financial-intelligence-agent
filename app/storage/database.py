@@ -33,7 +33,7 @@ class ClaimRecord(Base):
     """Persisted, source-grounded financial claim.
 
     Claim state is stored as text so state transitions can be handled explicitly
-    by the verification layer instead of being coupled to a database enum.
+    by the verification/trust layers instead of being coupled to a database enum.
     """
 
     __tablename__ = "claims"
@@ -131,6 +131,27 @@ class ClaimVerificationEventRecord(Base):
     reason: Mapped[str] = mapped_column(String(128))
     supporting_source_ids: Mapped[str] = mapped_column(Text)
     conflicting_source_ids: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class ClaimTrustEventRecord(Base):
+    """Append-only audit event for VERIFIED -> TRUSTED promotion.
+
+    The current state remains on `claims`. This table records exactly why a
+    conservative trust promotion happened and which independent authoritative
+    source IDs qualified as corroboration at that moment.
+    """
+
+    __tablename__ = "claim_trust_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    claim_id: Mapped[str] = mapped_column(String(36), index=True)
+    from_state: Mapped[str] = mapped_column(String(32))
+    to_state: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str] = mapped_column(String(128))
+    corroborating_source_ids: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

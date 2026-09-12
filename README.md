@@ -2,38 +2,43 @@
 
 Private, continuously learning financial and economic intelligence system.
 
-## Current Phase 3 milestone
+## Current Phase 4 milestone
 
-The project uses a cloud-first, source-grounded pipeline designed to keep local PC storage very small while preserving evidence, provenance, version history, claim state, and the reason a canonical subject/entity was assigned to a claim.
+The project uses a cloud-first, source-grounded pipeline designed to keep local PC storage very small while preserving evidence, provenance, version history, claim state, entity attribution, source independence, and trust-promotion auditability.
 
 It can:
 
 1. accept a URL only from an allow-listed trusted source;
-2. download HTML/PDF/text with redirect and size checks;
+2. download HTML/PDF/text and supported RSS/Atom/XML feeds with redirect and size checks;
 3. reject obvious anti-bot/challenge pages and document URLs that collapse to an unrelated source homepage;
-4. preserve the original file in S3-compatible private object storage;
-5. record document provenance in hosted PostgreSQL;
-6. extract and chunk text;
-7. generate embeddings with Qdrant Cloud Inference (no local embedding-model download);
-8. index searchable knowledge in Qdrant Cloud;
-9. extract explicit structured numeric claims without inventing values;
-10. attach publication/effective dates only when explicitly supported by nearby evidence;
-11. resolve known canonical subjects from explicit local aliases such as `RBI`, `SEBI`, `NSE`, `MoSPI`, `World Bank`, or `IMF`;
-12. refuse to guess a non-default subject when multiple known entities occur in the local evidence window;
-13. normalize only a leading alias for the already-resolved entity, for example `RBI Policy Repo Rate` -> `Policy Repo Rate`;
-14. persist entity-attribution provenance separately from the claim itself;
-15. preserve source-local version history instead of deleting older claims;
-16. reconcile independent-source agreement/disagreement with append-only verification audit events; and
-17. answer suitable factual questions from structured claim state first, while refusing to present conflicted or superseded values as current facts.
+4. retry bounded transient network failures without retrying policy/safety failures;
+5. preserve the original file in S3-compatible private object storage;
+6. record document provenance in hosted PostgreSQL;
+7. extract and chunk text;
+8. generate embeddings with Qdrant Cloud Inference (no local embedding-model download);
+9. index searchable knowledge in Qdrant Cloud;
+10. extract explicit structured numeric claims without inventing values;
+11. attach publication/effective dates only when explicitly supported by local or source-specific evidence;
+12. resolve known canonical subjects from explicit local aliases such as `RBI`, `SEBI`, `NSE`, `MoSPI`, `World Bank`, or `IMF`;
+13. refuse to guess a non-default subject when multiple known entities occur in the local evidence window;
+14. normalize only a leading alias for the already-resolved entity, for example `RBI Policy Repo Rate` -> `Policy Repo Rate`;
+15. persist entity-attribution provenance separately from the claim itself;
+16. preserve source-local version history instead of deleting older claims;
+17. reconcile independent-source agreement/disagreement with append-only verification audit events;
+18. group sibling brands from the same publisher so they do not count as independent corroboration;
+19. evaluate conservative VERIFIED -> TRUSTED promotion rules with append-only trust audit events;
+20. keep live automatic trust promotion disabled by default behind `TRUST_PROMOTION_ENABLED=false` until real dated primary + independent evidence passes end-to-end validation;
+21. expose entity-attribution provenance in structured QA evidence; and
+22. answer suitable factual questions from structured claim state first, while refusing to present conflicted or superseded values as current facts.
 
-The trusted source registry currently includes RBI, SEBI, NSE, MoSPI, World Bank, and IMF. Automated continuous crawling is intentionally not enabled yet.
+The trusted source registry currently includes RBI, SEBI, NSE, MoSPI, World Bank, IMF, DD News, and Akashvani News. DD News and Akashvani are assigned the same `prasar_bharati` independence group so they cannot falsely satisfy an independent-corroboration requirement by themselves. Automated continuous crawling is intentionally not enabled yet.
 
 ## Cloud-first architecture
 
 - **GitHub Private** — source code and version control
 - **GitHub Codespaces** — development compute so the project does not consume your PC disk
 - **FastAPI** — API layer
-- **Supabase PostgreSQL** — provenance, structured claims, entity attribution, verification events, and supersession history
+- **Supabase PostgreSQL** — provenance, structured claims, entity attribution, verification events, supersession history, and trust events
 - **Qdrant Cloud** — vector retrieval plus server-side embeddings
 - **Backblaze B2** — private raw documents/evidence through its S3-compatible API
 - **GitHub Actions** — automatic cloud tests on `main`, all `phase-*` branches, and pull requests to `main`
@@ -59,8 +64,9 @@ The structured layer uses separate tables so new audit capabilities do not requi
 - `documents` — source provenance and raw-object references;
 - `claims` — structured claim facts and current state;
 - `claim_entity_attributions` — why a canonical subject was assigned, including source default, explicit matched aliases, ambiguity candidates, and the exact local evidence window used;
-- `claim_supersessions` — non-destructive source-local version history; and
-- `claim_verification_events` — append-only verification/conflict transitions.
+- `claim_supersessions` — non-destructive source-local version history;
+- `claim_verification_events` — append-only verification/conflict transitions; and
+- `claim_trust_events` — append-only VERIFIED -> TRUSTED transitions and corroborating source IDs.
 
 ### 2. Qdrant Cloud
 
@@ -124,17 +130,37 @@ candidate
 independent, comparable corroboration
         ↓
 verified
+        ↓
+(optional, gated) authority-A direct primary + qualified independent corroboration
+        ↓
+trusted
 ```
 
-A disagreement in the same comparable temporal scope becomes `conflicted`. A later dated version from the same source may mark an older version `superseded`, while preserving the older row and an audit link. `trusted` exists as a reserved stronger state, but the system does not automatically promote claims to trusted merely because extraction or two-source verification succeeded.
+A disagreement in the same comparable temporal scope becomes `conflicted`. A later dated version from the same source may mark an older version `superseded`, while preserving the older row and an audit link.
+
+`TRUSTED` is deliberately stronger than ordinary verification. The policy requires a VERIFIED, dated, direct authority-A primary claim, auditable entity attribution, no active independent conflict, and at least one independent authority-A/B corroborating publisher group with the same value and temporal scope.
+
+Live automatic trust promotion remains disabled by default:
+
+```text
+TRUST_PROMOTION_ENABLED=false
+```
+
+The code path is fully tested in isolation, but the switch must remain off until real dated primary + independent evidence has passed live validation.
+
+## Source independence
+
+Different websites or brands owned by the same publisher are not automatically independent.
+
+For example, DD News and Akashvani News are both grouped under `prasar_bharati`. Two agreeing claims from those sibling brands can still be useful evidence, but they count as one publisher-level group for verification/trust policy.
 
 ## Entity attribution safety
 
 A source document and the subject of a claim are not assumed to be the same thing.
 
-For example, an IMF document can explicitly discuss an RBI policy rate. Phase 3 can assign that claim to `Reserve Bank of India` only when the small local evidence window explicitly contains exactly one recognized RBI name/alias. If both `IMF` and `RBI` occur in the attribution window, the resolver keeps the source/default entity rather than guessing which institution owns the metric.
+For example, an IMF or news document can explicitly discuss an RBI policy rate. The system can assign that claim to `Reserve Bank of India` only when the local evidence explicitly identifies that subject. Unsafe source-default cross-entity claims can be withheld from structured persistence while the raw evidence remains preserved.
 
-The attribution decision is auditable. Extracted claims carry:
+The attribution decision is auditable. Extracted claims can carry:
 
 - attribution basis (`explicit_local_alias`, `source_default`, or `ambiguous_local_entities_defaulted`);
 - source/default entity;
@@ -142,15 +168,17 @@ The attribution decision is auditable. Extracted claims carry:
 - ambiguity candidates; and
 - the exact normalized local text window used for the decision.
 
-That metadata is persisted in `claim_entity_attributions` without changing the deterministic fact identity. Existing older claims can therefore gain missing attribution provenance idempotently when their preserved evidence is reprocessed.
+That metadata is persisted in `claim_entity_attributions` and is also surfaced in structured QA evidence.
 
 ## Temporal safety
 
-The system does not use retrieval time as an effective date.
+The system does not use retrieval time as an effective or publication date.
 
-Publication/effective dates are attached only when explicit nearby source text supports them, such as `Published on`, `Effective Date`, `With effect from`, or similar labelled forms. If a reliable date is absent, the claim remains undated and cannot automatically participate in temporal cross-source verification.
+Publication/effective dates are attached only when explicit local text or a conservative source-specific adapter supports them. If a reliable date is absent, the claim remains undated and cannot automatically participate in temporal cross-source verification/trust.
 
-This is why the currently stored RBI homepage rate claims remain `candidate`: the page exposes the current rate table but does not provide a reliable explicit effective/publication date next to those values.
+This is why the original stored RBI homepage rate claims remain `candidate`: the page exposes the current rate table but does not provide a reliable explicit effective/publication date tied to those policy-rate values.
+
+Phase 4 added source-specific publication-date adapters for RBI press-release style pages, DD News article timestamps, and Akashvani News article timestamps. RSS/Atom/XML feed extraction preserves each feed item's own publication date and text without automatically following embedded links.
 
 ## Grounded question answering
 
@@ -173,7 +201,8 @@ For suitable metric questions, the structured layer is checked before vector ret
 - latest comparable temporal scope is preferred over older dated history;
 - `candidate` values may be returned with lower confidence and an explicit candidate basis;
 - `conflicted` claims are surfaced as a conflict instead of selecting one value;
-- `superseded` or `rejected` values are not presented as current structured facts; and
+- `superseded` or `rejected` values are not presented as current structured facts;
+- structured evidence includes entity-attribution provenance when available; and
 - questions that do not map safely to structured claims fall back to extractive evidence retrieval from Qdrant.
 
 Every response remains grounded in stored evidence and includes a non-advice warning.
@@ -212,13 +241,18 @@ Only HTTPS URLs whose host is explicitly allow-listed for the selected source ar
 POST /ask
 ```
 
-## First RBI end-to-end validation
+## Validation utilities
 
-With the API running in Codespaces:
+The repository includes safe validation/reporting scripts:
 
 ```bash
 python scripts/rbi_smoke_test.py
+python scripts/validate_ddnews_repo_rate.py
+python scripts/validate_rbi_june_repo_rate.py
+python scripts/trust_readiness_report.py
 ```
+
+The trust-readiness report is read-only: it evaluates current persisted claims under the Phase 4 policy without changing claim states or creating trust audit rows.
 
 If an official site returns a CAPTCHA/challenge page or silently redirects a document URL to an unrelated homepage, ingestion rejects that response instead of treating it as trusted evidence.
 
@@ -239,26 +273,32 @@ Phase 1 real-cloud validation established consistency across Supabase PostgreSQL
 
 Phase 2 added structured claims, temporal metadata, supersession, verification/conflict state transitions, append-only audit history, ingestion reconciliation, and claim-aware QA. The real RBI homepage backfill is idempotent and contains 11 candidate structured rate claims.
 
-Phase 3 automated coverage now includes:
+Phase 3 added conservative canonical entity attribution and persisted attribution provenance.
 
-- canonical entity aliases for the current trusted-source set;
-- exact alias-boundary protection;
-- ambiguous-local-entity refusal-to-guess behavior;
-- entity-prefixed metric normalization;
-- secondary-source explicit subject attribution;
-- end-to-end alignment of primary RBI and explicitly attributed secondary RBI claims for verification;
-- persisted entity-attribution provenance in a separate table;
-- idempotent attribution persistence and backfill for existing claim identities; and
-- protection against inventing attribution metadata for older/manual claims that have no extraction evidence.
+Phase 4 now includes:
 
-Latest Phase 3 automated validation at the attribution-persistence milestone: `99 passed, 2 warnings`. The warnings are existing Starlette/anyio deprecations and are non-blocking.
+- conservative trust policy and persistent trust audit events;
+- publisher-level independence groups;
+- safe structured-claim eligibility filtering;
+- DD News and Akashvani secondary-source support;
+- source-specific dated metadata adapters;
+- bounded transient-download retries;
+- RSS/Atom/XML extraction without following embedded links;
+- a disabled-by-default ingestion trust-promotion gate;
+- peer-group trust reconciliation so a primary can be revisited when corroboration arrives later;
+- a read-only trust-readiness report; and
+- attribution-aware structured QA evidence.
+
+Latest Phase 4 automated validation: `151 passed, 2 warnings`. The warnings are existing Starlette/anyio deprecations and are non-blocking.
+
+The real DD News June 5, 2026 corroborating article was accepted into the live cloud pipeline. Direct retrieval of the dated RBI June 2026 primary page was blocked by RBI's anti-bot challenge, and the system correctly rejected that response instead of bypassing the protection or promoting trust.
 
 ## Current boundary
 
-The code can now align explicitly attributed secondary evidence with a primary-source entity, but a real independent dated corroborating document has not yet been accepted as proof merely because the mechanism works in tests. Real cross-source corroboration must use actual allow-listed documents whose text explicitly supports the same entity, metric, unit, value, and temporal scope.
+The trust mechanism is implemented and tested, but live `TRUSTED` promotion is intentionally not enabled because the dated primary RBI evidence has not yet been safely accepted into the live pipeline. The project must not weaken anti-bot protections, invent dates, or treat secondary corroboration as a substitute for direct primary evidence.
 
-Automatic `trusted` promotion, broad free-form entity recognition, broad prose fact extraction, scheduled continuous crawling, and autonomous financial actions remain intentionally outside this milestone.
+Automated continuous crawling and autonomous financial actions remain outside this milestone.
 
 ## Next milestone
 
-`real dated cross-source corroboration -> conservative trust-promotion policy -> attribution-aware QA evidence -> scheduled source monitoring with pause-on-capacity safeguards`
+`scheduled source monitoring -> pause-on-capacity safeguards -> ingestion observability -> conservative review/approval workflow for enabling live trust promotion after dated primary evidence is accepted`

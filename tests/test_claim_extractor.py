@@ -155,3 +155,56 @@ def test_ambiguous_local_entities_keep_source_entity() -> None:
     assert len(claims) == 1
     assert claims[0].entity == "International Monetary Fund"
     assert claims[0].metric == "Policy Repo Rate"
+
+
+def test_extracts_ddnews_repo_rate_prose_with_explicit_rbi_attribution() -> None:
+    claims = extract_structured_claims(
+        chunks=["RBI keeps repo rate unchanged at 5.25%; retains neutral stance"],
+        document_id="33333333-3333-3333-3333-333333333333",
+        source_id="ddnews",
+        source_url="https://ddnews.gov.in/en/example/",
+        entity="DD News",
+        publication_date=date(2026, 6, 5),
+    )
+
+    assert len(claims) == 1
+    claim = claims[0]
+    assert claim.entity == "Reserve Bank of India"
+    assert claim.metric == "Policy Repo Rate"
+    assert claim.value_text == "5.25%"
+    assert claim.value_numeric == Decimal("5.25")
+    assert claim.unit == "%"
+    assert claim.publication_date == date(2026, 6, 5)
+    assert claim.entity_attribution_basis == "explicit_local_alias"
+
+
+def test_extracts_per_cent_repo_rate_as_percent_scalar() -> None:
+    claims = extract_structured_claims(
+        chunks=[
+            "The Reserve Bank of India (RBI) decided to keep the policy repo rate "
+            "unchanged at 5.25 per cent."
+        ],
+        document_id="44444444-4444-4444-4444-444444444444",
+        source_id="ddnews",
+        source_url="https://ddnews.gov.in/en/example/",
+        entity="DD News",
+        publication_date=date(2026, 6, 5),
+    )
+
+    assert len(claims) == 1
+    assert claims[0].value_text == "5.25 per cent"
+    assert claims[0].value_numeric == Decimal("5.25")
+    assert claims[0].unit == "%"
+
+
+def test_repo_rate_forecast_language_is_not_extracted_as_fact() -> None:
+    claims = extract_structured_claims(
+        chunks=["Analysts expected the repo rate to remain at 5.25% after the meeting."],
+        document_id="55555555-5555-5555-5555-555555555555",
+        source_id="ddnews",
+        source_url="https://ddnews.gov.in/en/example/",
+        entity="DD News",
+        publication_date=date(2026, 6, 5),
+    )
+
+    assert claims == []

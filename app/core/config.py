@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     chunk_size_chars: int = 3500
     chunk_overlap_chars: int = 400
 
+    # Phase 4 trust promotion is deliberately disabled by default. The code path
+    # may be exercised in isolated tests, but live ingestion must not upgrade a
+    # VERIFIED claim to TRUSTED until real dated primary + independent evidence
+    # has been validated end-to-end.
+    trust_promotion_enabled: bool = False
+
     # Reserved for a later grounded-generation layer.
     openai_api_key: str | None = None
     chat_model: str | None = None
