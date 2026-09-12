@@ -4,7 +4,9 @@ from app.storage.vector_store import search_chunks
 
 
 WORD_RE = re.compile(r"[A-Za-z0-9%₹$._-]+")
-SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+# Source line boundaries are meaningful for HTML tables/rate lists and many PDFs,
+# so treat them as answer-unit boundaries in addition to sentence punctuation.
+SENTENCE_RE = re.compile(r"(?:(?<=[.!?])\s+|\n+)")
 
 
 def _keywords(text: str) -> set[str]:
@@ -24,7 +26,7 @@ def _extractive_answer(question: str, matches: list[dict[str, object]]) -> str:
         score = float(match.get("score", 0.0))
         for sentence in SENTENCE_RE.split(text):
             sentence = sentence.strip()
-            if len(sentence) < 35:
+            if len(sentence) < 12:
                 continue
             overlap = len(question_terms & _keywords(sentence))
             candidates.append((overlap, score, sentence, evidence_index))
