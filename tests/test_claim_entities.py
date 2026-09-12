@@ -1,4 +1,4 @@
-from app.claims.entities import resolve_entity
+from app.claims.entities import normalize_metric_for_entity, resolve_entity
 
 
 def test_full_rbi_name_resolves_to_canonical_entity() -> None:
@@ -70,3 +70,30 @@ def test_sebi_alias_resolves_canonically() -> None:
 
     assert result.canonical_name == "Securities and Exchange Board of India"
     assert result.basis == "explicit_local_alias"
+
+
+def test_rbi_prefix_is_removed_from_metric_after_entity_resolution() -> None:
+    metric = normalize_metric_for_entity(
+        "RBI Policy Repo Rate",
+        canonical_entity="Reserve Bank of India",
+    )
+
+    assert metric == "Policy Repo Rate"
+
+
+def test_full_entity_prefix_is_removed_from_metric() -> None:
+    metric = normalize_metric_for_entity(
+        "Reserve Bank of India - Policy Repo Rate",
+        canonical_entity="Reserve Bank of India",
+    )
+
+    assert metric == "Policy Repo Rate"
+
+
+def test_entity_name_inside_metric_is_not_removed_when_not_leading() -> None:
+    metric = normalize_metric_for_entity(
+        "Exposure to RBI regulated entities",
+        canonical_entity="Reserve Bank of India",
+    )
+
+    assert metric == "Exposure to RBI regulated entities"
