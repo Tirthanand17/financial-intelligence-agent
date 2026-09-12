@@ -2,13 +2,16 @@ from app.monitoring.models import MonitorDefinition
 from app.sources.registry import validate_source_url
 
 
+# Registry entries describe monitors that are approved/configured for Phase 5.
+# Whether monitoring may run at all is controlled separately by the global
+# SOURCE_MONITORING_ENABLED safety gate, which remains false by default.
 MONITORS: tuple[MonitorDefinition, ...] = (
     MonitorDefinition(
         monitor_id="rbi-press-releases-rss",
         source_id="rbi",
         url="https://rbi.org.in/pressreleases_rss.xml",
         interval_minutes=60,
-        enabled=False,
+        enabled=True,
         max_new_documents_per_run=10,
     ),
 )
