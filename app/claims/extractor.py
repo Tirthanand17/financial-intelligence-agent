@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from app.claims.models import ClaimState, StructuredClaim
+from app.claims.temporal import extract_temporal_metadata
 
 
 # Phase 2 starts conservatively with explicit key/value facts such as
@@ -79,6 +80,30 @@ def _is_period_only_value(value_text: str) -> bool:
     return PERIOD_ONLY_RE.fullmatch(value_text.strip()) is not None
 
 
+def _local_temporal_dates(
+    *,
+    clean_lines: list[str],
+    start_index: int,
+    end_index: int,
+    publication_date: date | None,
+    effective_date: date | None,
+) -> tuple[date | None, date | None]:
+    """Attach only explicitly labelled dates close to one claim.
+
+    A small local window prevents a publication/effective date from an unrelated
+    section of the same document or chunk being applied globally. Explicit
+    caller-supplied dates still take precedence when available.
+    """
+    window_start = max(0, start_index - 2)
+    window_end = min(len(clean_lines), end_index + 3)
+    local_text = "\n".join(clean_lines[window_start:window_end])
+    metadata = extract_temporal_metadata(local_text)
+    return (
+        publication_date if publication_date is not None else metadata.publication_date,
+        effective_date if effective_date is not None else metadata.effective_date,
+    )
+
+
 def _append_claim(
     *,
     claims: list[StructuredClaim],
@@ -135,10 +160,11 @@ def extract_structured_claims(
     """Extract explicit numeric key/value facts from already-trusted evidence.
 
     Evidence may be on one line (`Metric : Value`) or in a conservative
-    three-line HTML-table form (`Metric`, `:`, `Value`). Every claim keeps the
-    exact supporting text sequence and chunk index. New claims are candidates
-    only; extraction does not mean the fact has been independently verified or
-    promoted to trusted knowledge.
+    three-line HTML-table form (`Metric`, `:`, `Value`). Explicitly labelled
+    temporal metadata is attached only when it is very close to that claim.
+    Every claim keeps the exact supporting text sequence and chunk index. New
+    claims are candidates only; extraction does not mean the fact has been
+    independently verified or promoted to trusted knowledge.
     """
     claims: list[StructuredClaim] = []
     seen: set[tuple[str, str, int]] = set()
@@ -148,13 +174,22 @@ def extract_structured_claims(
         clean_lines = [_clean_text(raw_line) for raw_line in raw_lines]
 
         # Standard one-line form, for example: `Policy Repo Rate : 5.25%`.
-        for raw_line, line in zip(raw_lines, clean_lines, strict=True):
+        for line_index, (raw_line, line) in enumerate(
+            zip(raw_lines, clean_lines, strict=True)
+        ):
             if not line:
                 continue
 
             for match in STRUCTURED_FACT_RE.finditer(line):
                 metric = _clean_text(match.group("metric"))
                 value_text = _clean_text(match.group("value"))
+                local_publication_date, local_effective_date = _local_temporal_dates(
+                    clean_lines=clean_lines,
+                    start_index=line_index,
+                    end_index=line_index,
+                    publication_date=publication_date,
+                    effective_date=effective_date,
+                )
                 _append_claim(
                     claims=claims,
                     seen=seen,
@@ -166,8 +201,8 @@ def extract_structured_claims(
                     source_id=source_id,
                     source_url=source_url,
                     entity=entity,
-                    publication_date=publication_date,
-                    effective_date=effective_date,
+                    publication_date=local_publication_date,
+                    effective_date=local_effective_date,
                 )
 
         # RBI's HTML rate table currently extracts as three separate lines:
@@ -197,6 +232,13 @@ def extract_structured_claims(
                     _clean_text(raw_lines[index + 2]),
                 )
             )
+            local_publication_date, local_effective_date = _local_temporal_dates(
+                clean_lines=clean_lines,
+                start_index=index,
+                end_index=index + 2,
+                publication_date=publication_date,
+                effective_date=effective_date,
+            )
             _append_claim(
                 claims=claims,
                 seen=seen,
@@ -208,8 +250,8 @@ def extract_structured_claims(
                 source_id=source_id,
                 source_url=source_url,
                 entity=entity,
-                publication_date=publication_date,
-                effective_date=effective_date,
+                publication_date=local_publication_date,
+                effective_date=local_effective_date,
             )
 
     return claims
