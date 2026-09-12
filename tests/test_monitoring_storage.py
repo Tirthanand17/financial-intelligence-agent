@@ -26,6 +26,12 @@ def _monitor() -> MonitorDefinition:
     )
 
 
+def _as_utc(value: datetime) -> datetime:
+    # SQLite drops timezone metadata even for DateTime(timezone=True), while
+    # PostgreSQL/Supabase preserves it. Normalize only for portable unit tests.
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def test_success_run_updates_state_and_appends_audit() -> None:
     engine = _engine()
     started = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
@@ -47,8 +53,9 @@ def test_success_run_updates_state_and_appends_audit() -> None:
         )
 
         assert state.state == "ready"
-        assert state.last_checked_at == finished
-        assert state.last_success_at == finished
+        assert _as_utc(state.last_checked_at) == finished
+        assert state.last_success_at is not None
+        assert _as_utc(state.last_success_at) == finished
         assert state.last_document_sha256 == digest
         assert state.consecutive_failures == 0
         assert run.outcome == "success"
