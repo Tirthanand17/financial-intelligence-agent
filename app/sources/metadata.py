@@ -13,6 +13,13 @@ _DDNEWS_DATE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+_AKASHVANI_DATE_RE = re.compile(
+    r"^\s*News\s+On\s+AIR\s*\|\s*"
+    r"(?P<date>[A-Za-z]{3,9}\s+\d{1,2},\s+\d{4})\s+"
+    r"\d{1,2}:\d{2}\s*(?:am|pm)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 def _parse_date(value: str, formats: tuple[str, ...]) -> date | None:
     cleaned = " ".join(value.split()).strip()
@@ -34,6 +41,7 @@ def extract_source_publication_date(source_id: str, text: str) -> date | None:
     Supported Phase 4 adapters:
     - RBI press releases/statements with a visible `Date : Jun 05, 2026` line.
     - DD News articles with a visible `05/06/26 | 12:23 pm | ...` article line.
+    - Akashvani News articles with `News On AIR | June 5, 2026 2:35 PM`.
 
     Retrieval time is never used as publication time.
     """
@@ -53,5 +61,14 @@ def extract_source_publication_date(source_id: str, text: str) -> date | None:
         if match is None:
             return None
         return _parse_date(match.group("date"), ("%d/%m/%y",))
+
+    if source_id == "akashvani":
+        match = _AKASHVANI_DATE_RE.search(head)
+        if match is None:
+            return None
+        return _parse_date(
+            match.group("date"),
+            ("%B %d, %Y", "%b %d, %Y"),
+        )
 
     return None
