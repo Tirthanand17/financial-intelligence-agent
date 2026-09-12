@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import lru_cache
 
 from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -27,6 +28,7 @@ class DocumentRecord(Base):
     status: Mapped[str] = mapped_column(String(32), default="indexed")
 
 
+@lru_cache
 def _session_factory() -> sessionmaker[Session]:
     settings = get_settings()
     engine = create_engine(settings.database_url, pool_pre_ping=True)
