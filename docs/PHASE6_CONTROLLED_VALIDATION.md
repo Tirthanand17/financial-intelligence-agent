@@ -2,7 +2,7 @@
 
 Phase 6 validates the monitoring prerequisites against the real configured cloud environment without enabling scheduled monitoring, queue processing, auto-ingestion, or trust promotion.
 
-## One-shot validation command
+## One-shot read-only validation command
 
 Run only from the configured private Codespace/environment that already contains the project's existing `.env` values:
 
@@ -39,7 +39,7 @@ It does **not**:
 
 ## Expected safe gate state
 
-For this validation, the normal expected configuration is still:
+For Phase 6 validation, the normal expected configuration remains:
 
 ```text
 SOURCE_MONITORING_ENABLED=false
@@ -47,7 +47,7 @@ SOURCE_AUTO_INGEST_ENABLED=false
 TRUST_PROMOTION_ENABLED=false
 ```
 
-The manual diagnostic does not require changing these switches because its own `--allow-network` flag is the one-run consent boundary and the diagnostic itself has no write path.
+The manual diagnostics do not require changing these switches. Each one-shot command has its own explicit consent flags and a deliberately narrower write boundary than scheduled monitoring.
 
 ## Validated account baseline (2026-09-12)
 
@@ -78,7 +78,36 @@ MONITOR_CAPACITY_LOW_WATERMARK_PERCENT=10 \
 python scripts/phase6_controlled_validation.py --allow-network
 ```
 
-Even if capacity becomes `OK`, the monitoring gate remains false, so this command still performs no queue writes or ingestion.
+A successful controlled read-only validation has all three capacity states `ok`, a healthy allow-listed feed, and monitor readiness blocked only by `gate:source_monitoring_disabled`.
+
+## One-shot persisted discovery validation
+
+After the read-only validation passes, Phase 6 may perform exactly one **discovery-only** persisted monitor transaction:
+
+```bash
+MONITOR_SUPABASE_MAX_MB=400 \
+MONITOR_B2_MAX_MB=8192 \
+MONITOR_QDRANT_MAX_POINTS=100000 \
+MONITOR_CAPACITY_LOW_WATERMARK_PERCENT=10 \
+python scripts/phase6_controlled_persisted_discovery.py \
+  --allow-network \
+  --allow-persist-discovery
+```
+
+This command still requires all normal runtime gates to remain false. It temporarily authorizes only the already-registered monitor for this single process invocation; it does **not** change `.env` or enable a scheduler.
+
+The command stages its database changes with `commit=False` first. Before committing, it proves that:
+
+- no `documents` row was created;
+- no claim, entity-attribution, supersession, verification-event, or trust-event row was created;
+- exactly one monitor-run audit row is staged;
+- no more discovery rows than the monitor's hard per-run bound are staged;
+- monitor state changes remain bounded;
+- `ingested_count` stays zero;
+- Backblaze B2 bytes do not change; and
+- Qdrant point count does not change.
+
+If any boundary check fails, the database transaction is rolled back. On success, only monitor audit/state and discovery-queue metadata are committed. The discovered item URLs are **not fetched or ingested** by this step.
 
 ## Interpreting capacity
 
@@ -86,6 +115,6 @@ A successful usage measurement does not by itself enable automatic monitoring. T
 
 Provider ceilings and internal safety ceilings are separate concepts. Internal ceilings should stay below the applicable no-cost plan limits with enough margin to avoid quota exhaustion or unexpected billing. If a provider plan changes, re-verify the provider limits before raising a project ceiling.
 
-## Next step after a successful probe
+## Next step after persisted discovery passes
 
-Review the output first. Only after the three usage measurements are known, the registered feed is safely reachable, and explicit no-cost ceilings are selected should the project consider a controlled persisted monitor run. Scheduled monitoring and auto-ingestion remain separate later decisions.
+Inspect the committed queue metadata and re-run the same one-shot discovery to verify idempotency before considering any permanent monitoring configuration. Scheduled monitoring, automatic document ingestion, and trust promotion remain separate later decisions and must not be enabled merely because discovery succeeds.
