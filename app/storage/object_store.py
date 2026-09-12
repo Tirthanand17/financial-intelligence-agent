@@ -47,3 +47,10 @@ def put_raw_document(*, source_id: str, sha256: str, content: bytes, content_typ
         ContentType=content_type,
     )
     return object_key
+
+
+def delete_raw_document(object_key: str) -> None:
+    settings = get_settings()
+    client = get_s3_client()
+    ensure_bucket(client, settings.s3_bucket)
+    client.delete_object(Bucket=settings.s3_bucket, Key=object_key)
