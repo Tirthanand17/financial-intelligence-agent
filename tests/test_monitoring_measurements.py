@@ -31,16 +31,21 @@ class _S3:
     def __init__(self):
         self.calls = []
 
-    def list_objects_v2(self, **kwargs):
+    def list_object_versions(self, **kwargs):
         self.calls.append(kwargs)
-        if "ContinuationToken" not in kwargs:
+        if "KeyMarker" not in kwargs:
             return {
-                "Contents": [{"Size": 100}, {"Size": 200}],
+                "Versions": [
+                    {"Key": "a", "VersionId": "v2", "Size": 100},
+                    {"Key": "a", "VersionId": "v1", "Size": 200},
+                ],
+                "DeleteMarkers": [{"Key": "gone", "VersionId": "d1"}],
                 "IsTruncated": True,
-                "NextContinuationToken": "next",
+                "NextKeyMarker": "a",
+                "NextVersionIdMarker": "v1",
             }
         return {
-            "Contents": [{"Size": 300}],
+            "Versions": [{"Key": "b", "VersionId": "v1", "Size": 300}],
             "IsTruncated": False,
         }
 
@@ -55,7 +60,7 @@ class _Qdrant:
         return SimpleNamespace(points_count=self.points_count)
 
 
-def test_measure_cloud_usage_reads_metadata_without_object_downloads() -> None:
+def test_measure_cloud_usage_reads_all_b2_versions_without_object_downloads() -> None:
     session = _Session(1_048_576)
     s3 = _S3()
     qdrant = _Qdrant(points_count=25)
@@ -69,12 +74,44 @@ def test_measure_cloud_usage_reads_metadata_without_object_downloads() -> None:
     )
 
     assert usage.supabase_bytes == 1_048_576
+    # Both versions of key "a" count, plus key "b". Delete markers add no bytes.
     assert usage.backblaze_b2_bytes == 600
     assert usage.qdrant_points == 25
     assert session.calls == 1
     assert len(s3.calls) == 2
     assert all(call["Bucket"] == "evidence" for call in s3.calls)
+    assert s3.calls[1]["KeyMarker"] == "a"
+    assert s3.calls[1]["VersionIdMarker"] == "v1"
     assert qdrant.calls == ["financial_knowledge"]
+
+
+def test_b2_version_pagination_without_version_marker_is_supported() -> None:
+    class S3NoVersionMarker:
+        def __init__(self):
+            self.calls = []
+
+        def list_object_versions(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return {
+                    "Versions": [{"Size": 10}],
+                    "IsTruncated": True,
+                    "NextKeyMarker": "next-key",
+                }
+            return {"Versions": [{"Size": 20}], "IsTruncated": False}
+
+    s3 = S3NoVersionMarker()
+    usage = measure_cloud_usage(
+        _Session(1),
+        s3_client=s3,
+        qdrant_client=_Qdrant(1),
+        s3_bucket="evidence",
+        qdrant_collection="financial_knowledge",
+    )
+
+    assert usage.backblaze_b2_bytes == 30
+    assert s3.calls[1]["KeyMarker"] == "next-key"
+    assert "VersionIdMarker" not in s3.calls[1]
 
 
 def test_measurement_failures_become_unknown_instead_of_guesses() -> None:
@@ -83,7 +120,7 @@ def test_measurement_failures_become_unknown_instead_of_guesses() -> None:
             raise RuntimeError("database unavailable")
 
     class BrokenS3:
-        def list_objects_v2(self, **kwargs):
+        def list_object_versions(self, **kwargs):
             raise RuntimeError("storage unavailable")
 
     class BrokenQdrant:
