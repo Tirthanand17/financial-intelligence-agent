@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.claims.eligibility import filter_eligible_claims
 from app.claims.extractor import extract_structured_claims
 from app.claims.storage import save_claim
 from app.claims.verification_storage import reconcile_verification_for_claim
@@ -27,7 +28,7 @@ def _extract_claim_candidates(
     entity: str,
     publication_date: date | None = None,
 ):
-    return extract_structured_claims(
+    claims = extract_structured_claims(
         chunks=chunks,
         document_id=document_id,
         source_id=source_id,
@@ -35,6 +36,7 @@ def _extract_claim_candidates(
         entity=entity,
         publication_date=publication_date,
     )
+    return filter_eligible_claims(claims)
 
 
 def _stage_claims(session: Session, claims) -> tuple[int, int, int]:
