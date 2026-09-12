@@ -76,6 +76,7 @@ def probe_monitor_once(
     *,
     started_at: datetime,
     finished_at: datetime,
+    source_monitoring_enabled: bool = False,
     download_feed: DownloadFeed = download_trusted_document,
 ) -> MonitorExecutionResult:
     """Run one bounded discovery-only monitor probe.
@@ -85,10 +86,21 @@ def probe_monitor_once(
     bounded number of allow-listed item URLs, and persist secret-free operational
     telemetry. It never follows or ingests discovered item links.
 
-    Capacity and monitor policy are evaluated before network access. A disabled
-    monitor or an unsafe/unknown capacity decision causes a recorded pause and no
-    download attempt.
+    The global source-monitoring gate is checked before every other decision and
+    defaults to false. Callers must explicitly pass an operator-approved true
+    value (normally from Settings.source_monitoring_enabled) before any network
+    access is possible. Capacity and per-monitor policy are then evaluated.
     """
+    if not source_monitoring_enabled:
+        return _record_and_result(
+            session,
+            monitor,
+            started_at=started_at,
+            finished_at=finished_at,
+            outcome=MonitorRunOutcome.DISABLED,
+            reason="source_monitoring_disabled",
+        )
+
     decision = decide_monitor_run(monitor, capacity)
 
     if decision.state is MonitorState.DISABLED:
