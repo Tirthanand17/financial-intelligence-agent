@@ -209,8 +209,8 @@ class SourceMonitorDiscoveryRecord(Base):
 
     The unique discovery key is based on monitor + URL rather than mutable feed
     metadata, so title/date corrections update the existing queue item instead of
-    creating duplicate work. Phase 5 initially leaves every item pending; a later
-    gated ingestion worker may transition it only after re-validating the URL.
+    creating duplicate work. Automated processing stays independently gated and
+    always re-validates the URL immediately before ingestion.
     """
 
     __tablename__ = "source_monitor_discoveries"
@@ -228,6 +228,9 @@ class SourceMonitorDiscoveryRecord(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     seen_count: Mapped[int] = mapped_column(Integer, default=1)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 @lru_cache
