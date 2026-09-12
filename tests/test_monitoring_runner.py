@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 from app.monitoring.capacity import evaluate_capacity
 from app.monitoring.models import CapacityState, MonitorDefinition, MonitorRunOutcome, ServiceCapacity
 from app.monitoring.runner import probe_monitor_once
-from app.storage.database import Base, SourceMonitorRunRecord, SourceMonitorStateRecord
+from app.storage.database import (
+    Base,
+    SourceMonitorDiscoveryRecord,
+    SourceMonitorRunRecord,
+    SourceMonitorStateRecord,
+)
 
 
 def _engine():
@@ -154,6 +159,11 @@ def test_probe_discovers_bounded_items_but_does_not_ingest_links() -> None:
         )
         run = session.scalar(select(SourceMonitorRunRecord))
         state = session.scalar(select(SourceMonitorStateRecord))
+        discoveries = list(
+            session.scalars(
+                select(SourceMonitorDiscoveryRecord).order_by(SourceMonitorDiscoveryRecord.url)
+            )
+        )
 
     assert result.outcome is MonitorRunOutcome.SUCCESS
     assert result.discovered_count == 2
@@ -162,6 +172,12 @@ def test_probe_discovers_bounded_items_but_does_not_ingest_links() -> None:
     assert run is not None and run.discovered_count == 2
     assert run.ingested_count == 0
     assert state is not None and state.state == "ready"
+    assert [record.url for record in discoveries] == [
+        "https://www.rbi.org.in/1",
+        "https://www.rbi.org.in/2",
+    ]
+    assert {record.status for record in discoveries} == {"pending"}
+    assert {record.document_id for record in discoveries} == {None}
 
 
 def test_probe_counts_rejected_cross_host_items_without_following_them() -> None:
