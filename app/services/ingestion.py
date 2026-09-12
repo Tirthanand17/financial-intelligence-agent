@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.claims.extractor import extract_structured_claims
 from app.claims.storage import save_claim
+from app.claims.versioning_storage import apply_supersession_for_newer_claim
 from app.core.config import get_settings
 from app.ingestion.chunker import chunk_text
 from app.ingestion.downloader import download_trusted_document
@@ -31,13 +32,29 @@ def _extract_claim_candidates(
     )
 
 
-def _stage_claims(session: Session, claims) -> int:
+def _stage_claims(session: Session, claims) -> tuple[int, int]:
+    """Persist claims and apply safe source-local supersession in one transaction.
+
+    Supersession is attempted for both newly created and already-known claim rows.
+    That makes this wiring backward-compatible with claims persisted before the
+    versioning layer existed while remaining idempotent on repeated ingestion.
+    """
     created_count = 0
+    supersessions_created = 0
+
     for claim in claims:
-        _, created = save_claim(session, claim, commit=False)
+        record, created = save_claim(session, claim, commit=False)
         if created:
             created_count += 1
-    return created_count
+
+        audits = apply_supersession_for_newer_claim(
+            session,
+            record,
+            commit=False,
+        )
+        supersessions_created += len(audits)
+
+    return created_count, supersessions_created
 
 
 def _backfill_existing_document_claims(
@@ -46,7 +63,7 @@ def _backfill_existing_document_claims(
     *,
     chunk_size: int,
     chunk_overlap: int,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Idempotently derive Phase 2 claims for a Phase 1 document.
 
     Existing raw evidence is reread from private object storage rather than
@@ -72,9 +89,9 @@ def _backfill_existing_document_claims(
         source_url=record.final_url,
         entity=record.source_name,
     )
-    created_count = _stage_claims(session, claims)
+    created_count, supersessions_created = _stage_claims(session, claims)
     session.commit()
-    return len(claims), created_count
+    return len(claims), created_count, supersessions_created
 
 
 def ingest_url(source_id: str, url: str) -> dict[str, object]:
@@ -84,7 +101,7 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
     with get_session() as session:
         existing = find_document_by_sha(session, downloaded.sha256)
         if existing:
-            claim_count, claims_created = _backfill_existing_document_claims(
+            claim_count, claims_created, supersessions_created = _backfill_existing_document_claims(
                 session,
                 existing,
                 chunk_size=settings.chunk_size_chars,
@@ -98,6 +115,7 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
                 "chunk_count": existing.chunk_count,
                 "claim_count": claim_count,
                 "claims_created": claims_created,
+                "supersessions_created": supersessions_created,
                 "sha256": existing.sha256,
             }
 
@@ -159,7 +177,7 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
             status="indexed",
         )
         session.add(record)
-        claims_created = _stage_claims(session, claims)
+        claims_created, supersessions_created = _stage_claims(session, claims)
         session.commit()
 
     return {
@@ -171,6 +189,7 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
         "chunk_count": len(chunks),
         "claim_count": len(claims),
         "claims_created": claims_created,
+        "supersessions_created": supersessions_created,
         "sha256": downloaded.sha256,
         "retrieved_at": downloaded.retrieved_at.isoformat(),
         "object_key": object_key,
