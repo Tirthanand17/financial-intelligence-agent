@@ -2,13 +2,13 @@ import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from app.claims.entities import normalize_metric_for_entity, resolve_entity
 from app.claims.models import ClaimState, StructuredClaim
 from app.claims.temporal import extract_temporal_metadata
 
 
-# Phase 2 starts conservatively with explicit key/value facts such as
-# `Policy Repo Rate : 5.25%`. Free-form prose extraction comes later and must
-# not be allowed to invent values that are not visible in the evidence.
+# Structured extraction remains deliberately conservative. Only explicit numeric
+# key/value facts are accepted; free-form prose extraction is a later concern.
 _NUMBER_WITH_OPTIONAL_UNIT = (
     r"(?:₹|\$|€)?\s*[-+]?\d[\d,.]*"
     r"\s*(?:%|bps|basis points|crore|lakh|million|billion|trillion)?"
@@ -80,6 +80,17 @@ def _is_period_only_value(value_text: str) -> bool:
     return PERIOD_ONLY_RE.fullmatch(value_text.strip()) is not None
 
 
+def _local_window_text(
+    *,
+    clean_lines: list[str],
+    start_index: int,
+    end_index: int,
+) -> str:
+    window_start = max(0, start_index - 2)
+    window_end = min(len(clean_lines), end_index + 3)
+    return "\n".join(clean_lines[window_start:window_end])
+
+
 def _local_temporal_dates(
     *,
     clean_lines: list[str],
@@ -88,15 +99,12 @@ def _local_temporal_dates(
     publication_date: date | None,
     effective_date: date | None,
 ) -> tuple[date | None, date | None]:
-    """Attach only explicitly labelled dates close to one claim.
-
-    A small local window prevents a publication/effective date from an unrelated
-    section of the same document or chunk being applied globally. Explicit
-    caller-supplied dates still take precedence when available.
-    """
-    window_start = max(0, start_index - 2)
-    window_end = min(len(clean_lines), end_index + 3)
-    local_text = "\n".join(clean_lines[window_start:window_end])
+    """Attach only explicitly labelled dates close to one claim."""
+    local_text = _local_window_text(
+        clean_lines=clean_lines,
+        start_index=start_index,
+        end_index=end_index,
+    )
     metadata = extract_temporal_metadata(local_text)
     return (
         publication_date if publication_date is not None else metadata.publication_date,
@@ -104,10 +112,37 @@ def _local_temporal_dates(
     )
 
 
+def _local_entity_and_metric(
+    *,
+    clean_lines: list[str],
+    start_index: int,
+    end_index: int,
+    default_entity: str,
+    metric: str,
+) -> tuple[str, str]:
+    """Resolve a canonical subject only from explicit nearby entity aliases.
+
+    If the local window is ambiguous, `resolve_entity` keeps the supplied source
+    entity. Metric normalization only removes a leading alias for the entity that
+    was actually resolved, preventing unrelated entity names from being stripped.
+    """
+    local_text = _local_window_text(
+        clean_lines=clean_lines,
+        start_index=start_index,
+        end_index=end_index,
+    )
+    resolution = resolve_entity(local_text, default_entity=default_entity)
+    canonical_metric = normalize_metric_for_entity(
+        metric,
+        canonical_entity=resolution.canonical_name,
+    )
+    return resolution.canonical_name, canonical_metric
+
+
 def _append_claim(
     *,
     claims: list[StructuredClaim],
-    seen: set[tuple[str, str, int]],
+    seen: set[tuple[str, str, str, int]],
     metric: str,
     value_text: str,
     evidence_text: str,
@@ -122,7 +157,7 @@ def _append_claim(
     if _is_period_only_value(value_text):
         return
 
-    key = (metric.lower(), value_text.lower(), chunk_index)
+    key = (entity.lower(), metric.lower(), value_text.lower(), chunk_index)
     if key in seen:
         return
     seen.add(key)
@@ -160,14 +195,16 @@ def extract_structured_claims(
     """Extract explicit numeric key/value facts from already-trusted evidence.
 
     Evidence may be on one line (`Metric : Value`) or in a conservative
-    three-line HTML-table form (`Metric`, `:`, `Value`). Explicitly labelled
-    temporal metadata is attached only when it is very close to that claim.
-    Every claim keeps the exact supporting text sequence and chunk index. New
-    claims are candidates only; extraction does not mean the fact has been
-    independently verified or promoted to trusted knowledge.
+    three-line HTML-table form (`Metric`, `:`, `Value`). Dates and canonical
+    subject entities are attached only from small local evidence windows. A
+    secondary source can therefore corroborate a primary-source fact only when
+    it explicitly names one unambiguous known subject near that fact.
+
+    New claims are candidates only; extraction never implies independent
+    verification or promotion to trusted knowledge.
     """
     claims: list[StructuredClaim] = []
-    seen: set[tuple[str, str, int]] = set()
+    seen: set[tuple[str, str, str, int]] = set()
 
     for chunk_index, chunk in enumerate(chunks):
         raw_lines = chunk.splitlines()
@@ -181,7 +218,7 @@ def extract_structured_claims(
                 continue
 
             for match in STRUCTURED_FACT_RE.finditer(line):
-                metric = _clean_text(match.group("metric"))
+                raw_metric = _clean_text(match.group("metric"))
                 value_text = _clean_text(match.group("value"))
                 local_publication_date, local_effective_date = _local_temporal_dates(
                     clean_lines=clean_lines,
@@ -189,6 +226,13 @@ def extract_structured_claims(
                     end_index=line_index,
                     publication_date=publication_date,
                     effective_date=effective_date,
+                )
+                local_entity, metric = _local_entity_and_metric(
+                    clean_lines=clean_lines,
+                    start_index=line_index,
+                    end_index=line_index,
+                    default_entity=entity,
+                    metric=raw_metric,
                 )
                 _append_claim(
                     claims=claims,
@@ -200,21 +244,21 @@ def extract_structured_claims(
                     document_id=document_id,
                     source_id=source_id,
                     source_url=source_url,
-                    entity=entity,
+                    entity=local_entity,
                     publication_date=local_publication_date,
                     effective_date=local_effective_date,
                 )
 
-        # RBI's HTML rate table currently extracts as three separate lines:
+        # RBI-style HTML tables can extract as three separate lines:
         # `Policy Repo Rate`, `:`, `5.25%`. Only accept this split form when the
         # separator is explicit and the value carries a recognized financial
         # unit/currency; this prevents nearby navigation text from being paired.
         for index in range(len(clean_lines) - 2):
-            metric = clean_lines[index]
+            raw_metric = clean_lines[index]
             separator = clean_lines[index + 1]
             value_line = clean_lines[index + 2]
 
-            if separator != ":" or not LABEL_ONLY_RE.fullmatch(metric):
+            if separator != ":" or not LABEL_ONLY_RE.fullmatch(raw_metric):
                 continue
 
             value_match = VALUE_ONLY_RE.fullmatch(value_line)
@@ -239,6 +283,13 @@ def extract_structured_claims(
                 publication_date=publication_date,
                 effective_date=effective_date,
             )
+            local_entity, metric = _local_entity_and_metric(
+                clean_lines=clean_lines,
+                start_index=index,
+                end_index=index + 2,
+                default_entity=entity,
+                metric=raw_metric,
+            )
             _append_claim(
                 claims=claims,
                 seen=seen,
@@ -249,7 +300,7 @@ def extract_structured_claims(
                 document_id=document_id,
                 source_id=source_id,
                 source_url=source_url,
-                entity=entity,
+                entity=local_entity,
                 publication_date=local_publication_date,
                 effective_date=local_effective_date,
             )
