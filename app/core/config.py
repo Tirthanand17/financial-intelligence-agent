@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,21 @@ class Settings(BaseSettings):
     chat_model: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        """Use the installed psycopg v3 driver for plain PostgreSQL URLs.
+
+        Supabase commonly provides connection strings beginning with
+        ``postgresql://``. SQLAlchemy otherwise defaults that scheme to the
+        legacy psycopg2 driver, while this project intentionally depends on
+        psycopg v3. Normalizing here keeps copied Supabase URLs working without
+        requiring users to edit credentials manually.
+        """
+        if isinstance(value, str) and value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        return value
 
 
 @lru_cache
