@@ -23,19 +23,19 @@ def _downloaded(content: bytes) -> DownloadedDocument:
     )
 
 
+def _settings():
+    return SimpleNamespace(
+        trust_promotion_enabled=False,
+        chunk_size_chars=3500,
+        chunk_overlap_chars=400,
+    )
+
+
 def test_expected_sha_mismatch_fails_before_any_persistence(monkeypatch) -> None:
     downloaded = _downloaded(b"changed after preflight")
     persistence_touched = False
 
-    monkeypatch.setattr(
-        ingestion_service,
-        "get_settings",
-        lambda: SimpleNamespace(
-            trust_promotion_enabled=False,
-            chunk_size_chars=3500,
-            chunk_overlap_chars=400,
-        ),
-    )
+    monkeypatch.setattr(ingestion_service, "get_settings", _settings)
     monkeypatch.setattr(
         ingestion_service,
         "download_trusted_document",
@@ -63,15 +63,7 @@ def test_expected_sha_exact_match_reaches_normal_ingestion_boundary(monkeypatch)
     downloaded = _downloaded(b"stable preflight bytes")
     persistence_touched = False
 
-    monkeypatch.setattr(
-        ingestion_service,
-        "get_settings",
-        lambda: SimpleNamespace(
-            trust_promotion_enabled=False,
-            chunk_size_chars=3500,
-            chunk_overlap_chars=400,
-        ),
-    )
+    monkeypatch.setattr(ingestion_service, "get_settings", _settings)
     monkeypatch.setattr(
         ingestion_service,
         "download_trusted_document",
@@ -93,3 +85,50 @@ def test_expected_sha_exact_match_reaches_normal_ingestion_boundary(monkeypatch)
         )
 
     assert persistence_touched is True
+
+
+def test_preflighted_document_path_does_not_redownload(monkeypatch) -> None:
+    downloaded = _downloaded(b"exact bytes retained from preflight")
+    persistence_touched = False
+
+    monkeypatch.setattr(ingestion_service, "get_settings", _settings)
+
+    def forbidden_download(*args, **kwargs):
+        raise AssertionError("preflighted persistence must not download the source again")
+
+    monkeypatch.setattr(ingestion_service, "download_trusted_document", forbidden_download)
+
+    def boundary_probe():
+        nonlocal persistence_touched
+        persistence_touched = True
+        raise RuntimeError("normal persistence boundary reached")
+
+    monkeypatch.setattr(ingestion_service, "get_session", boundary_probe)
+
+    with pytest.raises(RuntimeError, match="normal persistence boundary reached"):
+        ingestion_service.ingest_downloaded_document(
+            downloaded,
+            expected_sha256=downloaded.sha256,
+        )
+
+    assert persistence_touched is True
+
+
+def test_preflighted_document_sha_mismatch_fails_before_session(monkeypatch) -> None:
+    downloaded = _downloaded(b"exact bytes retained from preflight")
+    persistence_touched = False
+
+    def fail_if_persistence_starts():
+        nonlocal persistence_touched
+        persistence_touched = True
+        raise AssertionError("persistence must not start after a SHA mismatch")
+
+    monkeypatch.setattr(ingestion_service, "get_session", fail_if_persistence_starts)
+
+    with pytest.raises(ValueError, match="changed after preflight"):
+        ingestion_service.ingest_downloaded_document(
+            downloaded,
+            expected_sha256="0" * 64,
+        )
+
+    assert persistence_touched is False
