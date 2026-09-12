@@ -2,65 +2,158 @@
 
 Private, continuously learning financial and economic intelligence system.
 
-## Phase 1 goal
+## Current Phase 1 milestone
 
-Build a trustworthy local-first foundation that can ingest authorized public financial sources, preserve the original evidence, extract searchable knowledge, and answer questions with source provenance.
+The project now has a local-first, source-grounded pipeline that can:
 
-## Initial architecture
+1. accept a URL only from an allow-listed trusted source;
+2. download HTML/PDF/text with redirect and size checks;
+3. preserve the original file in MinIO;
+4. record provenance in PostgreSQL;
+5. extract and chunk text;
+6. create local embeddings with FastEmbed;
+7. index searchable knowledge in Qdrant; and
+8. answer questions from retrieved evidence with source URLs and confidence.
 
-- **FastAPI** — application/API layer
-- **PostgreSQL** — structured facts, entities, events, provenance
+The first trusted registry includes RBI, SEBI, NSE, MoSPI, World Bank, and IMF. Automated continuous crawling is intentionally not enabled yet.
+
+## Architecture
+
+- **FastAPI** — API layer
+- **PostgreSQL** — document provenance and later structured facts/events
 - **Qdrant** — semantic/vector retrieval
-- **MinIO** — raw documents and evidence storage
+- **MinIO** — raw source documents/evidence
+- **FastEmbed** — local embeddings; no paid embedding API required
 - **Docker Compose** — local infrastructure
 
-## Trusted source registry
+## Local setup (Windows)
 
-The first registry includes RBI, SEBI, NSE, MoSPI, World Bank, and IMF. Ingestion is not yet automated; sources are added deliberately and verified before continuous learning is enabled.
+### 1. Prerequisites
 
-## Run locally
+Install Python 3.11+, Git, and Docker Desktop.
 
-1. Install Python 3.11+ and Docker Desktop.
-2. Copy `.env.example` to `.env` and replace placeholder credentials.
-3. Start infrastructure:
+### 2. Clone and enter the repository
 
-```bash
+```powershell
+git clone https://github.com/Tirthanand17/financial-intelligence-agent.git
+cd financial-intelligence-agent
+git checkout phase-1-foundation
+```
+
+### 3. Create local environment configuration
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Change the placeholder PostgreSQL and MinIO passwords in `.env`. Never commit `.env`.
+
+### 4. Start PostgreSQL, Qdrant, and MinIO
+
+```powershell
 docker compose up -d
 ```
 
-4. Create a Python virtual environment and install dependencies:
+### 5. Install Python dependencies
 
-```bash
+```powershell
 python -m venv .venv
-# Windows PowerShell: .\.venv\Scripts\Activate.ps1
-# Linux/macOS: source .venv/bin/activate
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-5. Start the API:
+The first embedding operation downloads the configured local embedding model.
 
-```bash
+### 6. Run tests
+
+```powershell
+pytest -q
+```
+
+### 7. Start the API
+
+```powershell
 uvicorn app.main:app --reload
 ```
 
-6. Verify:
+Health check:
 
 ```text
-GET http://localhost:8000/health
+GET http://127.0.0.1:8000/health
 ```
 
-Expected response:
+Expected:
 
 ```json
 {"status":"ok"}
 ```
 
+## First RBI end-to-end test
+
+With the API running, execute:
+
+```powershell
+python scripts/rbi_smoke_test.py
+```
+
+By default this ingests the official RBI Bulletin site and asks a broad question about the retrieved economic content.
+
+You can also supply a specific official RBI HTML/PDF URL and your own question:
+
+```powershell
+python scripts/rbi_smoke_test.py "https://<official-rbi-url>" "What does this document say about inflation?"
+```
+
+## API endpoints
+
+### List trusted sources
+
+```text
+GET /sources
+```
+
+### Ingest a trusted document
+
+```http
+POST /ingest
+Content-Type: application/json
+
+{
+  "source_id": "rbi",
+  "url": "https://bulletin.rbi.org.in/"
+}
+```
+
+Only HTTPS URLs whose host is explicitly allow-listed for the selected source are accepted.
+
+### Ask a question
+
+```http
+POST /ask
+Content-Type: application/json
+
+{
+  "question": "What economic developments are discussed?",
+  "source_id": "rbi",
+  "top_k": 5
+}
+```
+
+Current answers use **extractive grounded mode**. The system selects statements from the retrieved source evidence rather than asking a generative model to invent an answer. Each response includes evidence, source URL, retrieval score, source authority level, and retrieval timestamp.
+
 ## Data safety
 
-Do not commit API keys, passwords, downloaded PDFs, databases, embeddings, or large financial datasets. These are excluded through `.gitignore` and should live in private storage.
+Do not commit API keys, passwords, downloaded PDFs, databases, embeddings, or large financial datasets. `.gitignore` excludes these from Git. Raw documents remain in private storage.
+
+## Important design rule
+
+New internet material is not automatically treated as truth. Source identity and provenance are preserved first. Later phases will add claim extraction, cross-source verification, contradiction handling, temporal versioning, and knowledge promotion states such as `candidate`, `verified`, `trusted`, `superseded`, and `rejected`.
 
 ## Next milestone
 
-Implement the first RBI document ingestion pipeline:
+After this Phase 1 branch is locally verified:
 
-`trusted URL -> download -> MinIO -> text extraction -> chunking -> embeddings -> Qdrant -> provenance -> question answering`
+`RBI ingestion -> structured claim extraction -> publication/effective dates -> verification -> PostgreSQL facts -> improved grounded answers`
+
+Only after that will scheduled continuous learning be enabled.
