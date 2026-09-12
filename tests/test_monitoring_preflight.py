@@ -8,6 +8,10 @@ from app.monitoring.preflight import preflight_discovered_url
 from app.sources.registry import get_source
 
 
+CHUNK_SIZE = 3500
+CHUNK_OVERLAP = 400
+
+
 def _downloaded(*, content: bytes, content_type: str = "text/html") -> DownloadedDocument:
     source = get_source("rbi")
     url = "https://www.rbi.org.in/press-release/123"
@@ -40,6 +44,8 @@ def test_preflight_runs_normal_extraction_without_persistence() -> None:
     result = preflight_discovered_url(
         "rbi",
         "https://www.rbi.org.in/press-release/123",
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
         download=download,
     )
 
@@ -64,6 +70,8 @@ def test_preflight_rejects_challenge_page() -> None:
         preflight_discovered_url(
             "rbi",
             "https://www.rbi.org.in/press-release/123",
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
             download=lambda *_: _downloaded(content=content),
         )
 
@@ -80,6 +88,8 @@ def test_preflight_rejects_non_allowlisted_url_before_download() -> None:
         preflight_discovered_url(
             "rbi",
             "https://example.com/not-rbi",
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
             download=download,
         )
 
@@ -93,5 +103,27 @@ def test_preflight_rejects_empty_extracted_document() -> None:
         preflight_discovered_url(
             "rbi",
             "https://www.rbi.org.in/press-release/123",
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
             download=lambda *_: _downloaded(content=content),
         )
+
+
+def test_preflight_rejects_invalid_chunk_configuration_before_download() -> None:
+    calls = 0
+
+    def download(source_id: str, url: str):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("download must not run")
+
+    with pytest.raises(ValueError, match="chunk_overlap"):
+        preflight_discovered_url(
+            "rbi",
+            "https://www.rbi.org.in/press-release/123",
+            chunk_size=100,
+            chunk_overlap=100,
+            download=download,
+        )
+
+    assert calls == 0
