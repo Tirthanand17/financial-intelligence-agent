@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from app.claims.extractor import extract_structured_claims
@@ -74,3 +75,39 @@ def test_range_is_preserved_without_fake_scalar_value() -> None:
     assert claims[0].value_text == "8.40% - 10.00%"
     assert claims[0].value_numeric is None
     assert claims[0].unit == "%"
+
+
+def test_attaches_nearby_effective_date_to_split_claim() -> None:
+    claims = _extract(
+        [
+            "Effective Date\n12 September 2026\n"
+            "Policy Repo Rate\n:\n5.25%"
+        ]
+    )
+
+    assert len(claims) == 1
+    assert claims[0].effective_date == date(2026, 9, 12)
+    assert claims[0].publication_date is None
+
+
+def test_attaches_nearby_publication_date_to_one_line_claim() -> None:
+    claims = _extract(
+        ["Publication Date\n2026-09-12\nPolicy Repo Rate : 5.25%"]
+    )
+
+    assert len(claims) == 1
+    assert claims[0].publication_date == date(2026, 9, 12)
+    assert claims[0].effective_date is None
+
+
+def test_does_not_attach_distant_unrelated_date() -> None:
+    claims = _extract(
+        [
+            "Publication Date\n2026-09-12\nUnrelated Section\nNavigation\n"
+            "Another Heading\nPolicy Repo Rate\n:\n5.25%"
+        ]
+    )
+
+    assert len(claims) == 1
+    assert claims[0].publication_date is None
+    assert claims[0].effective_date is None
