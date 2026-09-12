@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.claims.models import ClaimState
-from app.storage.database import ClaimRecord
+from app.storage.database import ClaimEntityAttributionRecord, ClaimRecord
 
 
 WORD_RE = re.compile(r"[A-Za-z0-9%₹$._-]+")
@@ -62,7 +63,38 @@ def _temporal_date(record: ClaimRecord) -> date | None:
     return record.effective_date or record.publication_date
 
 
-def _evidence(record: ClaimRecord) -> dict[str, object]:
+def _decode_json_list(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    try:
+        decoded = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return ()
+    if not isinstance(decoded, list):
+        return ()
+    return tuple(str(item) for item in decoded)
+
+
+def _attribution_map(
+    session: Session,
+    records: list[ClaimRecord],
+) -> dict[str, ClaimEntityAttributionRecord]:
+    claim_ids = [record.id for record in records]
+    if not claim_ids:
+        return {}
+
+    rows = session.scalars(
+        select(ClaimEntityAttributionRecord).where(
+            ClaimEntityAttributionRecord.claim_id.in_(claim_ids)
+        )
+    ).all()
+    return {row.claim_id: row for row in rows}
+
+
+def _evidence(
+    record: ClaimRecord,
+    attribution: ClaimEntityAttributionRecord | None,
+) -> dict[str, object]:
     return {
         "claim_id": record.id,
         "document_id": record.document_id,
@@ -77,6 +109,17 @@ def _evidence(record: ClaimRecord) -> dict[str, object]:
         "state": record.state,
         "text": record.evidence_text,
         "chunk_index": record.evidence_chunk_index,
+        "entity_attribution_basis": attribution.basis if attribution else None,
+        "entity_source_default": (
+            attribution.source_default_entity if attribution else None
+        ),
+        "entity_matched_aliases": (
+            _decode_json_list(attribution.matched_aliases) if attribution else ()
+        ),
+        "entity_ambiguous_candidates": (
+            _decode_json_list(attribution.ambiguous_candidates) if attribution else ()
+        ),
+        "entity_attribution_evidence": attribution.evidence_text if attribution else None,
     }
 
 
@@ -94,6 +137,7 @@ def resolve_structured_claim_question(
     - prefer the latest explicit temporal scope when one exists;
     - surface conflicts instead of selecting one disputed value;
     - within one active scope prefer TRUSTED, then VERIFIED, then CANDIDATE;
+    - expose persisted entity-attribution provenance alongside each evidence row;
     - never silently promote a candidate just because it is selected for QA.
     """
     question_terms = _terms(question)
@@ -105,6 +149,7 @@ def resolve_structured_claim_question(
         statement = statement.where(ClaimRecord.source_id == source_id)
 
     records = list(session.scalars(statement))
+    attribution_by_claim = _attribution_map(session, records)
     scored = [
         (score, record)
         for record in records
@@ -148,7 +193,10 @@ def resolve_structured_claim_question(
             answer=f"No active structured claim is available for {anchor.metric}.",
             confidence="low",
             confidence_basis="only_rejected_or_superseded_structured_claims",
-            evidence=tuple(_evidence(record) for record in series),
+            evidence=tuple(
+                _evidence(record, attribution_by_claim.get(record.id))
+                for record in series
+            ),
         )
 
     dated = [record for record in active if _temporal_date(record) is not None]
@@ -166,7 +214,10 @@ def resolve_structured_claim_question(
             answer=f"Conflicting structured claims exist for {anchor.metric}; no single value is presented as current fact.",
             confidence="low",
             confidence_basis="conflicting_structured_claims",
-            evidence=tuple(_evidence(record) for record in scope),
+            evidence=tuple(
+                _evidence(record, attribution_by_claim.get(record.id))
+                for record in scope
+            ),
         )
 
     rank = {
@@ -194,5 +245,8 @@ def resolve_structured_claim_question(
         answer=f"{selected.metric} : {selected.value_text}",
         confidence=confidence,
         confidence_basis=basis,
-        evidence=tuple(_evidence(record) for record in scope),
+        evidence=tuple(
+            _evidence(record, attribution_by_claim.get(record.id))
+            for record in scope
+        ),
     )
