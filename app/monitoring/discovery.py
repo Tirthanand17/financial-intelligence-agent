@@ -1,3 +1,4 @@
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from email.utils import parsedate_to_datetime
@@ -20,6 +21,7 @@ class DiscoveredFeedItem:
 class FeedDiscoveryResult:
     items: tuple[DiscoveredFeedItem, ...]
     rejected_count: int = 0
+    rejection_reasons: tuple[tuple[str, int], ...] = ()
 
 
 def _local_name(tag: str) -> str:
@@ -79,6 +81,9 @@ def discover_feed_items(
     This function never follows links. Every candidate item URL must independently
     pass the selected source's HTTPS host allow-list before it is returned.
     Duplicate links within the same feed are collapsed while preserving feed order.
+
+    Rejections expose only symbolic aggregate reasons. They intentionally do not
+    retain rejected URLs, raw XML, request headers, or exception text.
     """
     if limit < 1 or limit > 100:
         raise ValueError("discovery limit must be between 1 and 100")
@@ -95,7 +100,7 @@ def discover_feed_items(
     ]
 
     items: list[DiscoveredFeedItem] = []
-    rejected_count = 0
+    rejection_reasons: Counter[str] = Counter()
     seen_urls: set[str] = set()
 
     for entry in entries:
@@ -104,18 +109,18 @@ def discover_feed_items(
 
         link = _entry_link(entry)
         if not link:
-            rejected_count += 1
+            rejection_reasons["missing_link"] += 1
             continue
 
         parsed = urlparse(link)
         if parsed.scheme != "https":
-            rejected_count += 1
+            rejection_reasons["non_https"] += 1
             continue
 
         try:
             validate_source_url(source_id, link)
         except ValueError:
-            rejected_count += 1
+            rejection_reasons["source_policy_rejection"] += 1
             continue
 
         normalized_url = link.strip()
@@ -138,5 +143,6 @@ def discover_feed_items(
 
     return FeedDiscoveryResult(
         items=tuple(items),
-        rejected_count=rejected_count,
+        rejected_count=sum(rejection_reasons.values()),
+        rejection_reasons=tuple(sorted(rejection_reasons.items())),
     )
