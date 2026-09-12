@@ -9,10 +9,9 @@ from app.claims.models import ClaimState, StructuredClaim
 class VerificationDecision:
     """Result of evaluating one claim against comparable evidence.
 
-    Phase 2 deliberately does not auto-promote anything to TRUSTED. A claim can
-    become VERIFIED only when at least two independent source IDs agree on the
-    same value for the same entity, metric, unit, and temporal scope. Conflicts
-    are surfaced explicitly instead of being silently resolved.
+    A claim can become VERIFIED only when at least two independent source IDs
+    agree on the same value for the same entity, metric, unit, and temporal
+    scope. Conflicts are surfaced explicitly instead of being silently resolved.
     """
 
     state: ClaimState
@@ -49,9 +48,18 @@ def _comparison_key(claim: StructuredClaim) -> tuple[str, str, str, tuple[str, d
 
 
 def _value_key(claim: StructuredClaim) -> str:
-    # value_text is authoritative because ranges and formatted values must be
-    # preserved exactly; numeric parsing is only a convenience field.
-    return _normalized_text(claim.value_text)
+    """Canonicalize safely parsed scalars while preserving text-only values.
+
+    This lets equivalent representations such as `5.25%` and `5.25 per cent`
+    agree without weakening range handling. Ranges and other values that cannot
+    be represented by one scalar still compare by normalized source text.
+    """
+    if claim.value_numeric is not None:
+        return (
+            f"numeric:{claim.value_numeric.normalize()}:"
+            f"{_normalized_text(claim.unit)}"
+        )
+    return f"text:{_normalized_text(claim.value_text)}"
 
 
 def assess_claim(
