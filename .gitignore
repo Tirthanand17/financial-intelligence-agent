@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local data and databases
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs / caches
+logs/
+.cache/
+
+# Docker volumes
+postgres_data/
+qdrant_storage/
+minio_data/
+
+# Large research artifacts
+*.pdf
+*.parquet
+*.feather
+*.arrow
+*.zip
+*.tar
+*.gz
