@@ -7,18 +7,84 @@ WORD_RE = re.compile(r"[A-Za-z0-9%₹$._-]+")
 # Source line boundaries are meaningful for HTML tables/rate lists and many PDFs,
 # so treat them as answer-unit boundaries in addition to sentence punctuation.
 SENTENCE_RE = re.compile(r"(?:(?<=[.!?])\s+|\n+)")
+# Capture simple financial key/value facts even when an HTML page has been
+# flattened into a long navigation-heavy text block.
+STRUCTURED_VALUE_RE = re.compile(
+    r"(?P<label>[A-Za-z][A-Za-z0-9 /&().,'’\-]{2,90}?)\s*:\s*"
+    r"(?P<value>(?:₹|\$|€)?\s*[-+]?\d[\d,.]*"
+    r"(?:\s*(?:-|–|to)\s*[-+]?\d[\d,.]*)?"
+    r"\s*(?:%|bps|basis points|crore|lakh|million|billion|trillion)?)",
+    re.IGNORECASE,
+)
 
 
 def _keywords(text: str) -> set[str]:
     stop = {
         "the", "a", "an", "and", "or", "of", "to", "in", "for", "on", "is", "are",
         "was", "were", "what", "why", "how", "when", "which", "with", "from", "by",
+        "shown", "show", "website", "site",
     }
-    return {token.lower() for token in WORD_RE.findall(text) if len(token) > 2 and token.lower() not in stop}
+    return {
+        token.lower()
+        for token in WORD_RE.findall(text)
+        if len(token) > 2 and token.lower() not in stop
+    }
+
+
+def _best_label_suffix(label: str, question_terms: set[str]) -> tuple[str, int]:
+    """Return the shortest useful label suffix with the strongest query overlap."""
+    words = WORD_RE.findall(label)
+    if not words:
+        return label.strip(), 0
+
+    best_words = words[-8:]
+    best_overlap = len(question_terms & {word.lower() for word in best_words})
+
+    for start in range(len(words)):
+        suffix = words[start:]
+        suffix_terms = {word.lower() for word in suffix}
+        overlap = len(question_terms & suffix_terms)
+        if overlap > best_overlap or (overlap == best_overlap and overlap > 0 and len(suffix) < len(best_words)):
+            best_words = suffix
+            best_overlap = overlap
+
+    return " ".join(best_words), best_overlap
+
+
+def _structured_value_answer(
+    question_terms: set[str], matches: list[dict[str, object]]
+) -> str | None:
+    candidates: list[tuple[int, float, int, str]] = []
+
+    for evidence_index, match in enumerate(matches, start=1):
+        text = str(match.get("text", ""))
+        retrieval_score = float(match.get("score", 0.0))
+
+        for found in STRUCTURED_VALUE_RE.finditer(text):
+            label, overlap = _best_label_suffix(found.group("label"), question_terms)
+            if question_terms and overlap == 0:
+                continue
+
+            value = " ".join(found.group("value").split())
+            answer = f"{label} : {value} [{evidence_index}]"
+            # Prefer stronger lexical overlap first, then vector relevance, then
+            # shorter labels so navigation text does not drown out the metric.
+            candidates.append((overlap, retrieval_score, -len(label), answer))
+
+    if not candidates:
+        return None
+
+    candidates.sort(reverse=True)
+    return candidates[0][3]
 
 
 def _extractive_answer(question: str, matches: list[dict[str, object]]) -> str:
     question_terms = _keywords(question)
+
+    structured_answer = _structured_value_answer(question_terms, matches)
+    if structured_answer:
+        return structured_answer
+
     candidates: list[tuple[int, float, str, int]] = []
 
     for evidence_index, match in enumerate(matches, start=1):
