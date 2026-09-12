@@ -18,6 +18,12 @@ _TRANSIENT_DOWNLOAD_ERRORS = (
 )
 _MAX_DOWNLOAD_ATTEMPTS = 3
 _RETRY_DELAYS_SECONDS = (1.0, 2.0)
+_XML_CONTENT_TYPES = {
+    "application/rss+xml",
+    "application/atom+xml",
+    "application/xml",
+    "text/xml",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +70,10 @@ def _download_trusted_document_once(source_id: str, url: str) -> DownloadedDocum
 
     headers = {
         "User-Agent": "FinancialIntelligenceAgent/0.1 (+research; source-grounded ingestion)",
-        "Accept": "text/html,application/pdf,text/plain;q=0.9,*/*;q=0.5",
+        "Accept": (
+            "text/html,application/pdf,application/rss+xml,application/atom+xml,"
+            "application/xml,text/xml,text/plain;q=0.9,*/*;q=0.5"
+        ),
     }
 
     with httpx.Client(follow_redirects=True, timeout=45.0, headers=headers) as client:
@@ -93,8 +102,10 @@ def _download_trusted_document_once(source_id: str, url: str) -> DownloadedDocum
             content_type = "application/pdf"
         elif lower_url.endswith((".html", ".htm")):
             content_type = "text/html"
+        elif lower_url.endswith((".xml", ".rss")):
+            content_type = "application/xml"
 
-    allowed_types = {"application/pdf", "text/html", "text/plain"}
+    allowed_types = {"application/pdf", "text/html", "text/plain", *_XML_CONTENT_TYPES}
     if content_type not in allowed_types:
         raise ValueError(f"Unsupported content type: {content_type}")
 
