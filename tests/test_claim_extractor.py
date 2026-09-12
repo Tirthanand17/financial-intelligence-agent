@@ -25,6 +25,7 @@ def test_extracts_repo_rate_from_rbi_style_line() -> None:
     assert repo.state is ClaimState.CANDIDATE
     assert repo.evidence_text == "Policy Repo Rate : 5.25%"
     assert repo.evidence_chunk_index == 0
+    assert repo.entity == "Reserve Bank of India"
 
 
 def test_extracts_repo_rate_from_rbi_split_html_rows() -> None:
@@ -111,3 +112,46 @@ def test_does_not_attach_distant_unrelated_date() -> None:
     assert len(claims) == 1
     assert claims[0].publication_date is None
     assert claims[0].effective_date is None
+
+
+def test_secondary_source_can_attribute_explicit_rbi_claim() -> None:
+    claims = extract_structured_claims(
+        chunks=["RBI\nEffective Date\n2026-09-12\nPolicy Repo Rate : 5.25%"],
+        document_id="22222222-2222-2222-2222-222222222222",
+        source_id="imf",
+        source_url="https://www.imf.org/example",
+        entity="International Monetary Fund",
+    )
+
+    assert len(claims) == 1
+    assert claims[0].entity == "Reserve Bank of India"
+    assert claims[0].metric == "Policy Repo Rate"
+    assert claims[0].effective_date == date(2026, 9, 12)
+
+
+def test_entity_prefixed_metric_is_normalized_after_attribution() -> None:
+    claims = extract_structured_claims(
+        chunks=["Effective Date\n2026-09-12\nRBI Policy Repo Rate : 5.25%"],
+        document_id="22222222-2222-2222-2222-222222222222",
+        source_id="imf",
+        source_url="https://www.imf.org/example",
+        entity="International Monetary Fund",
+    )
+
+    assert len(claims) == 1
+    assert claims[0].entity == "Reserve Bank of India"
+    assert claims[0].metric == "Policy Repo Rate"
+
+
+def test_ambiguous_local_entities_keep_source_entity() -> None:
+    claims = extract_structured_claims(
+        chunks=["IMF and RBI\nEffective Date\n2026-09-12\nPolicy Repo Rate : 5.25%"],
+        document_id="22222222-2222-2222-2222-222222222222",
+        source_id="imf",
+        source_url="https://www.imf.org/example",
+        entity="International Monetary Fund",
+    )
+
+    assert len(claims) == 1
+    assert claims[0].entity == "International Monetary Fund"
+    assert claims[0].metric == "Policy Repo Rate"
