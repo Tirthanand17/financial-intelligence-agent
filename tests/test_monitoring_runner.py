@@ -42,6 +42,33 @@ def _times():
     return start, start + timedelta(seconds=2)
 
 
+def test_global_monitoring_gate_defaults_off_and_never_touches_network() -> None:
+    engine = _engine()
+    start, end = _times()
+    calls = 0
+
+    def download(source_id: str, url: str):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("network must not be called")
+
+    with Session(engine) as session:
+        result = probe_monitor_once(
+            session,
+            _monitor(enabled=True),
+            _safe_capacity(),
+            started_at=start,
+            finished_at=end,
+            download_feed=download,
+        )
+        run = session.scalar(select(SourceMonitorRunRecord))
+
+    assert calls == 0
+    assert result.outcome is MonitorRunOutcome.DISABLED
+    assert result.reason == "source_monitoring_disabled"
+    assert run is not None and run.reason == "source_monitoring_disabled"
+
+
 def test_disabled_monitor_never_touches_network() -> None:
     engine = _engine()
     start, end = _times()
@@ -59,11 +86,13 @@ def test_disabled_monitor_never_touches_network() -> None:
             _safe_capacity(),
             started_at=start,
             finished_at=end,
+            source_monitoring_enabled=True,
             download_feed=download,
         )
 
     assert calls == 0
     assert result.outcome is MonitorRunOutcome.DISABLED
+    assert result.reason == "monitor_disabled"
 
 
 def test_capacity_pause_happens_before_network() -> None:
@@ -90,6 +119,7 @@ def test_capacity_pause_happens_before_network() -> None:
             capacity,
             started_at=start,
             finished_at=end,
+            source_monitoring_enabled=True,
             download_feed=download,
         )
 
@@ -119,6 +149,7 @@ def test_probe_discovers_bounded_items_but_does_not_ingest_links() -> None:
             _safe_capacity(),
             started_at=start,
             finished_at=end,
+            source_monitoring_enabled=True,
             download_feed=download,
         )
         run = session.scalar(select(SourceMonitorRunRecord))
@@ -148,6 +179,7 @@ def test_probe_counts_rejected_cross_host_items_without_following_them() -> None
             _safe_capacity(),
             started_at=start,
             finished_at=end,
+            source_monitoring_enabled=True,
             download_feed=lambda *_: SimpleNamespace(
                 content=feed,
                 content_type="application/rss+xml",
@@ -173,6 +205,7 @@ def test_network_failure_is_recorded_as_symbolic_error_only() -> None:
             _safe_capacity(),
             started_at=start,
             finished_at=end,
+            source_monitoring_enabled=True,
             download_feed=download,
         )
         run = session.scalar(select(SourceMonitorRunRecord))
@@ -195,6 +228,7 @@ def test_non_xml_monitor_response_is_rejected() -> None:
             _safe_capacity(),
             started_at=start,
             finished_at=end,
+            source_monitoring_enabled=True,
             download_feed=lambda *_: SimpleNamespace(
                 content=b"<html>not a feed</html>",
                 content_type="text/html",
