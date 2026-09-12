@@ -5,6 +5,7 @@ from app.monitoring.controlled import (
     MonitoringDatabaseSnapshot,
     validate_controlled_discovery_delta,
     validate_idempotent_reobservation,
+    validate_single_queue_processing_delta,
 )
 from app.monitoring.models import MonitorExecutionResult, MonitorRunOutcome
 
@@ -218,3 +219,63 @@ def test_failed_monitor_outcome_is_not_committable() -> None:
 
     assert decision.passed is False
     assert "run:failed" in decision.blockers
+
+
+def test_single_queue_processing_accepts_exactly_one_new_document_without_trust() -> None:
+    before = replace(_snapshot(), monitor_discoveries=10, monitor_runs=4, monitor_states=1)
+    after = replace(
+        before,
+        documents=6,
+        claims=19,
+        claim_entity_attributions=19,
+        claim_verification_events=3,
+    )
+
+    decision = validate_single_queue_processing_delta(
+        before,
+        after,
+        selected_count=1,
+        ingested_count=1,
+        duplicate_count=0,
+        failed_count=0,
+        rejected_count=0,
+    )
+
+    assert decision.passed is True
+    assert decision.reason == "single_queue_processing_validated"
+
+
+def test_single_queue_processing_accepts_duplicate_without_new_document() -> None:
+    before = replace(_snapshot(), monitor_discoveries=10, monitor_runs=4, monitor_states=1)
+    after = replace(before, claims=12, claim_entity_attributions=12)
+
+    decision = validate_single_queue_processing_delta(
+        before,
+        after,
+        selected_count=1,
+        ingested_count=0,
+        duplicate_count=1,
+        failed_count=0,
+        rejected_count=0,
+    )
+
+    assert decision.passed is True
+
+
+def test_single_queue_processing_rejects_trust_event_or_multiple_documents() -> None:
+    before = replace(_snapshot(), monitor_discoveries=10, monitor_runs=4, monitor_states=1)
+    after = replace(before, documents=7, claim_trust_events=1)
+
+    decision = validate_single_queue_processing_delta(
+        before,
+        after,
+        selected_count=1,
+        ingested_count=1,
+        duplicate_count=0,
+        failed_count=0,
+        rejected_count=0,
+    )
+
+    assert decision.passed is False
+    assert "database:trust_event_count_changed" in decision.blockers
+    assert "database:new_ingestion_document_delta_not_one" in decision.blockers
