@@ -114,19 +114,21 @@ def _local_temporal_dates(
     )
 
 
-def _local_entity_and_metric(
+def _local_entity_context(
     *,
     clean_lines: list[str],
     start_index: int,
     end_index: int,
     default_entity: str,
     metric: str,
-) -> tuple[str, str]:
-    """Resolve a canonical subject only from explicit nearby entity aliases.
+) -> tuple[str, str, str, tuple[str, ...], tuple[str, ...], str]:
+    """Resolve and fully describe the local canonical-subject decision.
 
     Entity section headers often sit a few lines above a dated fact, so entity
     attribution gets a slightly wider backward window than temporal parsing.
     Ambiguous windows still default to the source entity rather than guessing.
+    The exact normalized window used for the decision is returned for audit
+    persistence; it is not silently expanded to the whole chunk/document.
     """
     window_start = max(0, start_index - 4)
     window_end = min(len(clean_lines), end_index + 3)
@@ -136,7 +138,14 @@ def _local_entity_and_metric(
         metric,
         canonical_entity=resolution.canonical_name,
     )
-    return resolution.canonical_name, canonical_metric
+    return (
+        resolution.canonical_name,
+        canonical_metric,
+        resolution.basis,
+        resolution.matched_aliases,
+        resolution.ambiguous_candidates,
+        local_text,
+    )
 
 
 def _append_claim(
@@ -151,6 +160,11 @@ def _append_claim(
     source_id: str,
     source_url: str,
     entity: str,
+    entity_attribution_basis: str,
+    entity_source_default: str,
+    entity_matched_aliases: tuple[str, ...],
+    entity_ambiguous_candidates: tuple[str, ...],
+    entity_evidence_text: str,
     publication_date: date | None,
     effective_date: date | None,
 ) -> None:
@@ -176,6 +190,11 @@ def _append_claim(
             document_id=document_id,
             evidence_text=evidence_text,
             evidence_chunk_index=chunk_index,
+            entity_attribution_basis=entity_attribution_basis,
+            entity_source_default=entity_source_default,
+            entity_matched_aliases=entity_matched_aliases,
+            entity_ambiguous_candidates=entity_ambiguous_candidates,
+            entity_evidence_text=entity_evidence_text,
             confidence=0.95,
             state=ClaimState.CANDIDATE,
         )
@@ -199,6 +218,10 @@ def extract_structured_claims(
     subject entities are attached only from small local evidence windows. A
     secondary source can therefore corroborate a primary-source fact only when
     it explicitly names one unambiguous known subject near that fact.
+
+    Entity attribution provenance is carried with each extracted claim so the
+    persistence layer can audit whether the subject came from an explicit local
+    alias, an ambiguous local window, or the source default.
 
     New claims are candidates only; extraction never implies independent
     verification or promotion to trusted knowledge.
@@ -227,7 +250,14 @@ def extract_structured_claims(
                     publication_date=publication_date,
                     effective_date=effective_date,
                 )
-                local_entity, metric = _local_entity_and_metric(
+                (
+                    local_entity,
+                    metric,
+                    entity_basis,
+                    matched_aliases,
+                    ambiguous_candidates,
+                    entity_evidence_text,
+                ) = _local_entity_context(
                     clean_lines=clean_lines,
                     start_index=line_index,
                     end_index=line_index,
@@ -245,6 +275,11 @@ def extract_structured_claims(
                     source_id=source_id,
                     source_url=source_url,
                     entity=local_entity,
+                    entity_attribution_basis=entity_basis,
+                    entity_source_default=entity,
+                    entity_matched_aliases=matched_aliases,
+                    entity_ambiguous_candidates=ambiguous_candidates,
+                    entity_evidence_text=entity_evidence_text,
                     publication_date=local_publication_date,
                     effective_date=local_effective_date,
                 )
@@ -283,7 +318,14 @@ def extract_structured_claims(
                 publication_date=publication_date,
                 effective_date=effective_date,
             )
-            local_entity, metric = _local_entity_and_metric(
+            (
+                local_entity,
+                metric,
+                entity_basis,
+                matched_aliases,
+                ambiguous_candidates,
+                entity_evidence_text,
+            ) = _local_entity_context(
                 clean_lines=clean_lines,
                 start_index=index,
                 end_index=index + 2,
@@ -301,6 +343,11 @@ def extract_structured_claims(
                 source_id=source_id,
                 source_url=source_url,
                 entity=local_entity,
+                entity_attribution_basis=entity_basis,
+                entity_source_default=entity,
+                entity_matched_aliases=matched_aliases,
+                entity_ambiguous_candidates=ambiguous_candidates,
+                entity_evidence_text=entity_evidence_text,
                 publication_date=local_publication_date,
                 effective_date=local_effective_date,
             )
