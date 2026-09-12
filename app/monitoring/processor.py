@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.monitoring.models import CapacityDecision, MonitorDefinition, MonitorState
 from app.monitoring.policy import decide_monitor_run
+from app.monitoring.queue_retry import assess_discovery_retry
 from app.services.ingestion import ingest_url
 from app.sources.registry import validate_source_url
 from app.storage.database import SourceMonitorDiscoveryRecord
@@ -144,6 +145,74 @@ def _gate_processing(
     return None
 
 
+def _retry_decision(
+    record: SourceMonitorDiscoveryRecord,
+    monitor: MonitorDefinition,
+    *,
+    now: datetime,
+):
+    return assess_discovery_retry(
+        now=now,
+        interval_minutes=monitor.interval_minutes,
+        attempt_count=record.attempt_count,
+        last_attempt_at=record.last_attempt_at,
+        last_error_code=record.last_error_code,
+    )
+
+
+def _select_eligible_pending_records(
+    session: Session,
+    monitor: MonitorDefinition,
+    *,
+    now: datetime,
+    limit: int,
+) -> list[SourceMonitorDiscoveryRecord]:
+    """Select fresh work first, then only retries whose backoff has expired.
+
+    A failed oldest row must never starve newer untouched discoveries. Fresh rows
+    therefore have priority, while failed rows are considered only after their
+    per-item retry window is due.
+    """
+    selected = list(
+        session.scalars(
+            select(SourceMonitorDiscoveryRecord)
+            .where(
+                SourceMonitorDiscoveryRecord.monitor_id == monitor.monitor_id,
+                SourceMonitorDiscoveryRecord.source_id == monitor.source_id,
+                SourceMonitorDiscoveryRecord.status == "pending",
+                SourceMonitorDiscoveryRecord.last_error_code.is_(None),
+            )
+            .order_by(
+                SourceMonitorDiscoveryRecord.first_seen_at,
+                SourceMonitorDiscoveryRecord.id,
+            )
+            .limit(limit)
+        )
+    )
+    if len(selected) >= limit:
+        return selected
+
+    failed = session.scalars(
+        select(SourceMonitorDiscoveryRecord)
+        .where(
+            SourceMonitorDiscoveryRecord.monitor_id == monitor.monitor_id,
+            SourceMonitorDiscoveryRecord.source_id == monitor.source_id,
+            SourceMonitorDiscoveryRecord.status == "pending",
+            SourceMonitorDiscoveryRecord.last_error_code.is_not(None),
+        )
+        .order_by(
+            SourceMonitorDiscoveryRecord.first_seen_at,
+            SourceMonitorDiscoveryRecord.id,
+        )
+    )
+    for record in failed:
+        if _retry_decision(record, monitor, now=now).due:
+            selected.append(record)
+            if len(selected) >= limit:
+                break
+    return selected
+
+
 def process_specific_pending_discovery(
     session: Session,
     monitor: MonitorDefinition,
@@ -157,10 +226,9 @@ def process_specific_pending_discovery(
 ) -> DiscoveryProcessingResult:
     """Process exactly one named pending queue row behind the normal safety gates.
 
-    This exact-record entry point exists for controlled canaries and recovery work
-    where selecting a different pending row would violate the approved write
-    boundary. It does not weaken source policy, capacity policy, or the two global
-    monitoring/auto-ingest gates.
+    The exact-record path also enforces per-item retry backoff. This prevents a
+    recurring or recovery worker from repeatedly hitting a failed source item
+    before its retry window is eligible.
     """
     blocked = _gate_processing(
         monitor,
@@ -182,6 +250,10 @@ def process_specific_pending_discovery(
     if record is None:
         return DiscoveryProcessingResult(reason="pending_discovery_not_found")
 
+    retry = _retry_decision(record, monitor, now=now)
+    if not retry.due:
+        return DiscoveryProcessingResult(reason=retry.reason)
+
     return _process_record(session, record, now=now, ingest=ingest, commit=True)
 
 
@@ -196,16 +268,13 @@ def process_pending_discoveries(
     limit: int | None = None,
     ingest: IngestUrl = ingest_url,
 ) -> DiscoveryProcessingResult:
-    """Process a bounded pending discovery queue behind two explicit gates.
+    """Process a bounded pending discovery queue behind explicit safety gates.
 
-    Feed monitoring and link ingestion are intentionally independent. Both gates
-    must be true, the monitor must be enabled, and cloud capacity must be safe.
-    Each queued URL is re-validated against the source allow-list immediately
-    before calling the existing trusted ingestion pipeline.
-
-    Operational failures persist only symbolic error codes. Failed items remain
-    pending for a later retry; policy-rejected URLs are terminally marked rejected.
-    The original batch path preserves its one-commit queue-transition semantics.
+    Both global gates must be true, the monitor must be enabled, and cloud
+    capacity must be safe. Fresh rows are processed before retries. Failed rows
+    remain pending but are excluded until exponential per-item retry backoff has
+    expired, preventing repeated source hits and preventing one broken oldest row
+    from starving newer queue work.
     """
     blocked = _gate_processing(
         monitor,
@@ -220,21 +289,14 @@ def process_pending_discoveries(
     if effective_limit < 1 or effective_limit > monitor.max_new_documents_per_run:
         raise ValueError("processing limit must be between 1 and monitor maximum")
 
-    records = list(
-        session.scalars(
-            select(SourceMonitorDiscoveryRecord)
-            .where(
-                SourceMonitorDiscoveryRecord.monitor_id == monitor.monitor_id,
-                SourceMonitorDiscoveryRecord.source_id == monitor.source_id,
-                SourceMonitorDiscoveryRecord.status == "pending",
-            )
-            .order_by(
-                SourceMonitorDiscoveryRecord.first_seen_at,
-                SourceMonitorDiscoveryRecord.id,
-            )
-            .limit(effective_limit)
-        )
+    records = _select_eligible_pending_records(
+        session,
+        monitor,
+        now=now,
+        limit=effective_limit,
     )
+    if not records:
+        return DiscoveryProcessingResult(reason="no_eligible_pending_discoveries")
 
     ingested_count = 0
     duplicate_count = 0
