@@ -7,17 +7,35 @@ from app.claims.models import ClaimState, StructuredClaim
 from app.claims.temporal import extract_temporal_metadata
 
 
-# Structured extraction remains deliberately conservative. Only explicit numeric
-# key/value facts are accepted; free-form prose extraction is a later concern.
+# Structured extraction remains deliberately conservative. Most claims still
+# require explicit key/value form. Phase 4 adds one tightly bounded prose pattern
+# for policy repo-rate statements so authoritative secondary reporting can be
+# compared with RBI evidence without enabling broad free-form fact extraction.
 _NUMBER_WITH_OPTIONAL_UNIT = (
     r"(?:₹|\$|€)?\s*[-+]?\d[\d,.]*"
-    r"\s*(?:%|bps|basis points|crore|lakh|million|billion|trillion)?"
+    r"\s*(?:%|per\s+cent|bps|basis points|crore|lakh|million|billion|trillion)?"
 )
 
 STRUCTURED_FACT_RE = re.compile(
     r"(?P<metric>[A-Za-z][A-Za-z0-9 /&().,'’\-]{1,100}?)\s*:\s*"
     rf"(?P<value>{_NUMBER_WITH_OPTIONAL_UNIT}"
     rf"(?:\s*(?:-|–|to)\s*{_NUMBER_WITH_OPTIONAL_UNIT})?)",
+    re.IGNORECASE,
+)
+
+# Only a same-line repo-rate statement with an explicit final percent value is
+# accepted. Forecast/expectation language is rejected below before persistence.
+REPO_RATE_PROSE_RE = re.compile(
+    r"\b(?:policy\s+)?repo\s+rate\b"
+    r"(?P<context>.{0,100}?)"
+    r"\b(?:at|to|of)\s*"
+    r"(?P<value>[-+]?\d[\d,.]*\s*(?:%|per\s+cent))",
+    re.IGNORECASE,
+)
+
+_PROSE_UNCERTAINTY_RE = re.compile(
+    r"\b(?:forecast|forecasted|expect|expected|estimate|estimated|projection|"
+    r"projected|could|may|might|likely|target)\b",
     re.IGNORECASE,
 )
 
@@ -37,7 +55,7 @@ def _clean_text(value: str) -> str:
 
 def _unit_from_value(value_text: str) -> str | None:
     lowered = value_text.lower()
-    if "%" in value_text:
+    if "%" in value_text or lowered.endswith("per cent"):
         return "%"
     if lowered.endswith("bps") or lowered.endswith("basis points"):
         return "bps"
@@ -62,7 +80,7 @@ def _numeric_value(value_text: str) -> Decimal | None:
     body = value_text.strip()
     body = re.sub(r"^(?:₹|\$|€)\s*", "", body)
     body = re.sub(
-        r"\s*(?:%|bps|basis points|crore|lakh|million|billion|trillion)\s*$",
+        r"\s*(?:%|per\s+cent|bps|basis points|crore|lakh|million|billion|trillion)\s*$",
         "",
         body,
         flags=re.IGNORECASE,
@@ -201,6 +219,70 @@ def _append_claim(
     )
 
 
+def _append_repo_rate_prose_claims(
+    *,
+    claims: list[StructuredClaim],
+    seen: set[tuple[str, str, str, int]],
+    raw_line: str,
+    line: str,
+    line_index: int,
+    clean_lines: list[str],
+    chunk_index: int,
+    document_id: str,
+    source_id: str,
+    source_url: str,
+    entity: str,
+    publication_date: date | None,
+    effective_date: date | None,
+) -> None:
+    for match in REPO_RATE_PROSE_RE.finditer(line):
+        context = _clean_text(match.group("context"))
+        if _PROSE_UNCERTAINTY_RE.search(context):
+            continue
+
+        value_text = _clean_text(match.group("value"))
+        local_publication_date, local_effective_date = _local_temporal_dates(
+            clean_lines=clean_lines,
+            start_index=line_index,
+            end_index=line_index,
+            publication_date=publication_date,
+            effective_date=effective_date,
+        )
+        (
+            local_entity,
+            metric,
+            entity_basis,
+            matched_aliases,
+            ambiguous_candidates,
+            entity_evidence_text,
+        ) = _local_entity_context(
+            clean_lines=clean_lines,
+            start_index=line_index,
+            end_index=line_index,
+            default_entity=entity,
+            metric="Policy Repo Rate",
+        )
+        _append_claim(
+            claims=claims,
+            seen=seen,
+            metric=metric,
+            value_text=value_text,
+            evidence_text=_clean_text(raw_line),
+            chunk_index=chunk_index,
+            document_id=document_id,
+            source_id=source_id,
+            source_url=source_url,
+            entity=local_entity,
+            entity_attribution_basis=entity_basis,
+            entity_source_default=entity,
+            entity_matched_aliases=matched_aliases,
+            entity_ambiguous_candidates=ambiguous_candidates,
+            entity_evidence_text=entity_evidence_text,
+            publication_date=local_publication_date,
+            effective_date=local_effective_date,
+        )
+
+
 def extract_structured_claims(
     *,
     chunks: list[str],
@@ -211,13 +293,17 @@ def extract_structured_claims(
     publication_date: date | None = None,
     effective_date: date | None = None,
 ) -> list[StructuredClaim]:
-    """Extract explicit numeric key/value facts from already-trusted evidence.
+    """Extract conservative explicit financial facts from trusted evidence.
 
-    Evidence may be on one line (`Metric : Value`) or in a conservative
-    three-line HTML-table form (`Metric`, `:`, `Value`). Dates and canonical
-    subject entities are attached only from small local evidence windows. A
-    secondary source can therefore corroborate a primary-source fact only when
-    it explicitly names one unambiguous known subject near that fact.
+    General evidence must be one-line key/value (`Metric : Value`) or the
+    conservative three-line HTML-table form (`Metric`, `:`, `Value`). The sole
+    bounded prose exception is a same-line policy repo-rate statement with an
+    explicit percent value and no uncertainty language.
+
+    Dates and canonical subject entities are attached only from safe local
+    evidence or caller-supplied source-level publication metadata. A secondary
+    source can therefore corroborate a primary-source fact only when it explicitly
+    names one unambiguous known subject near that fact.
 
     Entity attribution provenance is carried with each extracted claim so the
     persistence layer can audit whether the subject came from an explicit local
@@ -283,6 +369,22 @@ def extract_structured_claims(
                     publication_date=local_publication_date,
                     effective_date=local_effective_date,
                 )
+
+            _append_repo_rate_prose_claims(
+                claims=claims,
+                seen=seen,
+                raw_line=raw_line,
+                line=line,
+                line_index=line_index,
+                clean_lines=clean_lines,
+                chunk_index=chunk_index,
+                document_id=document_id,
+                source_id=source_id,
+                source_url=source_url,
+                entity=entity,
+                publication_date=publication_date,
+                effective_date=effective_date,
+            )
 
         # RBI-style HTML tables can extract as three separate lines:
         # `Policy Repo Rate`, `:`, `5.25%`. Only accept this split form when the
