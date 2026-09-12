@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from decimal import Decimal
 
@@ -67,6 +67,27 @@ class ClaimRecord(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class ClaimSupersessionRecord(Base):
+    """Audit trail linking an older claim to the newer claim that replaced it.
+
+    This is a separate table so Phase 2 can add version history to an existing
+    deployment without altering the already-created `claims` table. The older
+    claim remains in place and only its state changes to `superseded`.
+    """
+
+    __tablename__ = "claim_supersessions"
+
+    older_claim_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    newer_claim_id: Mapped[str] = mapped_column(String(36), index=True)
+    newer_document_id: Mapped[str] = mapped_column(String(36), index=True)
+    temporal_kind: Mapped[str] = mapped_column(String(32))
+    older_date: Mapped[date] = mapped_column(Date)
+    newer_date: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
 
