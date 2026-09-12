@@ -23,6 +23,7 @@ def test_discovers_allowlisted_rbi_items_without_following_links() -> None:
     result = discover_feed_items(content, source_id="rbi", limit=10)
 
     assert result.rejected_count == 0
+    assert result.rejection_reasons == ()
     assert len(result.items) == 2
     assert result.items[0].title == "Monetary Policy Statement"
     assert result.items[0].publication_date == date(2026, 6, 5)
@@ -39,7 +40,23 @@ def test_rejects_cross_host_and_non_https_items() -> None:
     result = discover_feed_items(content, source_id="rbi", limit=10)
 
     assert result.rejected_count == 2
+    assert result.rejection_reasons == (
+        ("non_https", 1),
+        ("source_policy_rejection", 1),
+    )
     assert [item.url for item in result.items] == ["https://www.rbi.org.in/item"]
+
+
+def test_missing_link_is_reported_symbolically() -> None:
+    content = b"""<rss><channel>
+      <item><title>No link</title></item>
+    </channel></rss>"""
+
+    result = discover_feed_items(content, source_id="rbi", limit=10)
+
+    assert result.items == ()
+    assert result.rejected_count == 1
+    assert result.rejection_reasons == (("missing_link", 1),)
 
 
 def test_duplicate_feed_links_are_collapsed() -> None:
