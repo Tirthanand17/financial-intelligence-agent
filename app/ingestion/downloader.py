@@ -20,6 +20,26 @@ class DownloadedDocument:
     retrieved_at: datetime
 
 
+def _validate_redirect_target(source_url: str, final_url: str, source: SourceDefinition) -> None:
+    final = urlparse(final_url)
+    final_host = (final.hostname or "").lower()
+    if final_host not in source.allowed_hosts:
+        raise ValueError("Trusted source redirected to a non-allow-listed host")
+
+    requested = urlparse(source_url)
+    requested_path = requested.path.rstrip("/")
+    final_path = final.path.rstrip("/")
+
+    # A document/detail URL that silently collapses to the source homepage is
+    # not the requested evidence. Reject it instead of indexing unrelated home
+    # page content under the original document URL.
+    if requested_path and not final_path:
+        raise ValueError(
+            "Trusted source redirected the requested document to its homepage; "
+            "the response was rejected because it is not the requested evidence."
+        )
+
+
 def download_trusted_document(source_id: str, url: str) -> DownloadedDocument:
     settings = get_settings()
     source = validate_source_url(source_id, url)
@@ -35,9 +55,7 @@ def download_trusted_document(source_id: str, url: str) -> DownloadedDocument:
             response.raise_for_status()
 
             final_url = str(response.url)
-            final_host = (urlparse(final_url).hostname or "").lower()
-            if final_host not in source.allowed_hosts:
-                raise ValueError("Trusted source redirected to a non-allow-listed host")
+            _validate_redirect_target(url, final_url, source)
 
             declared_length = response.headers.get("content-length")
             if declared_length and declared_length.isdigit() and int(declared_length) > max_bytes:
