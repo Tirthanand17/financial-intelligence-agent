@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 
 _MAX_QUEUE_RETRY_BACKOFF_HOURS = 24
@@ -10,6 +10,19 @@ class DiscoveryRetryDecision:
     due: bool
     reason: str
     next_eligible_at: datetime | None
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize database/runtime timestamps to aware UTC.
+
+    PostgreSQL returns timezone-aware values for the production schema, while
+    SQLite used by tests may round-trip the same column as a naive datetime.
+    Stored monitoring timestamps are UTC, so a naive value is interpreted as UTC
+    rather than allowing a naive/aware comparison to fail at runtime.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def next_discovery_retry_at(
@@ -42,7 +55,7 @@ def next_discovery_retry_at(
         base * multiplier,
         timedelta(hours=_MAX_QUEUE_RETRY_BACKOFF_HOURS),
     )
-    return last_attempt_at + delay
+    return _as_utc(last_attempt_at) + delay
 
 
 def assess_discovery_retry(
@@ -91,7 +104,9 @@ def assess_discovery_retry(
             reason="retry_metadata_incomplete",
             next_eligible_at=None,
         )
-    if now < eligible_at:
+
+    now_utc = _as_utc(now)
+    if now_utc < eligible_at:
         return DiscoveryRetryDecision(
             due=False,
             reason="retry_backoff",
