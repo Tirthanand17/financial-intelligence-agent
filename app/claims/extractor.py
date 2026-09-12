@@ -236,8 +236,12 @@ def _append_repo_rate_prose_claims(
     effective_date: date | None,
 ) -> None:
     for match in REPO_RATE_PROSE_RE.finditer(line):
-        context = _clean_text(match.group("context"))
-        if _PROSE_UNCERTAINTY_RE.search(context):
+        # Inspect only a bounded local prefix plus the matched statement. This
+        # catches qualifiers such as `analysts expected the repo rate ...`
+        # without letting unrelated language elsewhere in the chunk block a fact.
+        guard_start = max(0, match.start() - 80)
+        guard_text = _clean_text(line[guard_start : match.end()])
+        if _PROSE_UNCERTAINTY_RE.search(guard_text):
             continue
 
         value_text = _clean_text(match.group("value"))
