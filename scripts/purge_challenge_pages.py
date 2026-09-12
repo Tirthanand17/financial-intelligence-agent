@@ -1,7 +1,15 @@
 import argparse
+import sys
+from pathlib import Path
 
 from qdrant_client import models
 from sqlalchemy import select
+
+# Allow `python scripts/purge_challenge_pages.py` to import the project package
+# when executed directly from the repository root in Codespaces/CI shells.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.core.config import get_settings
 from app.ingestion.quality import STRONG_BLOCK_MARKERS, WEAK_BLOCK_MARKERS
