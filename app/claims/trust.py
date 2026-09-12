@@ -37,7 +37,9 @@ def _comparison_key(claim: StructuredClaim) -> tuple[str, str, str, tuple[str, s
 
 
 def _value_key(claim: StructuredClaim) -> str:
-    return _normalized(claim.value_text)
+    if claim.value_numeric is not None:
+        return f"numeric:{claim.value_numeric.normalize()}:{_normalized(claim.unit)}"
+    return f"text:{_normalized(claim.value_text)}"
 
 
 def _source_definition(claim: StructuredClaim):
@@ -85,7 +87,7 @@ def assess_trust(
     - an explicit comparable temporal scope exists;
     - the target comes directly from an authority-A source whose source identity
       is the same canonical entity as the claim subject;
-    - the target has auditable Phase 3 entity-attribution provenance;
+    - the target has auditable entity-attribution provenance;
     - no active comparable claim carries a different value; and
     - at least one independent authority-A/B source corroborates the same value,
       with auditable entity attribution. Cross-entity corroborators must name the
