@@ -37,6 +37,16 @@ class ControlledPersistenceDecision:
     blockers: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class DiscoveryObservation:
+    """Small non-secret snapshot used to prove queue re-observation idempotency."""
+
+    record_id: str
+    seen_count: int
+    status: str
+    document_id: str | None
+
+
 def _count(session: Session, model) -> int:
     return int(session.scalar(select(func.count()).select_from(model)) or 0)
 
@@ -53,6 +63,85 @@ def snapshot_monitoring_database(session: Session) -> MonitoringDatabaseSnapshot
         monitor_discoveries=_count(session, SourceMonitorDiscoveryRecord),
         monitor_runs=_count(session, SourceMonitorRunRecord),
         monitor_states=_count(session, SourceMonitorStateRecord),
+    )
+
+
+def snapshot_discovery_observations(
+    session: Session,
+    *,
+    monitor_id: str,
+    urls: tuple[str, ...],
+) -> dict[str, DiscoveryObservation]:
+    """Snapshot queue identity/counters for an explicit bounded URL set."""
+    if not urls:
+        return {}
+
+    rows = session.scalars(
+        select(SourceMonitorDiscoveryRecord).where(
+            SourceMonitorDiscoveryRecord.monitor_id == monitor_id,
+            SourceMonitorDiscoveryRecord.url.in_(urls),
+        )
+    )
+    return {
+        row.url: DiscoveryObservation(
+            record_id=row.id,
+            seen_count=row.seen_count,
+            status=row.status,
+            document_id=row.document_id,
+        )
+        for row in rows
+    }
+
+
+def validate_idempotent_reobservation(
+    before: dict[str, DiscoveryObservation],
+    staged: dict[str, DiscoveryObservation],
+    *,
+    expected_urls: tuple[str, ...],
+) -> ControlledPersistenceDecision:
+    """Prove that replaying the same feed items updates existing queue rows only.
+
+    A valid re-observation preserves row identity, processing status and linked
+    document identity while incrementing ``seen_count`` exactly once. Missing or
+    newly created rows are rejected by requiring every expected URL to exist in
+    the pre-run snapshot.
+    """
+    blockers: list[str] = []
+    unique_urls = tuple(dict.fromkeys(expected_urls))
+    if len(unique_urls) != len(expected_urls):
+        blockers.append("reobservation:duplicate_expected_url")
+
+    for url in unique_urls:
+        old = before.get(url)
+        new = staged.get(url)
+        if old is None:
+            blockers.append("reobservation:missing_existing_row")
+            continue
+        if new is None:
+            blockers.append("reobservation:row_disappeared")
+            continue
+        if new.record_id != old.record_id:
+            blockers.append("reobservation:row_identity_changed")
+        if new.seen_count != old.seen_count + 1:
+            blockers.append("reobservation:seen_count_not_incremented_once")
+        if new.status != old.status:
+            blockers.append("reobservation:status_changed")
+        if new.document_id != old.document_id:
+            blockers.append("reobservation:document_link_changed")
+
+    if set(staged) != set(unique_urls):
+        blockers.append("reobservation:staged_url_set_mismatch")
+
+    if blockers:
+        return ControlledPersistenceDecision(
+            passed=False,
+            reason="idempotent_reobservation_validation_failed",
+            blockers=tuple(dict.fromkeys(blockers)),
+        )
+
+    return ControlledPersistenceDecision(
+        passed=True,
+        reason="idempotent_reobservation_validated",
     )
 
 
