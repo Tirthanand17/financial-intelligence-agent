@@ -12,6 +12,7 @@ def _claim(
     document_id: str,
     value_text: str = "5.25%",
     effective_date: date | None = date(2026, 9, 12),
+    publication_date: date | None = None,
     state: ClaimState = ClaimState.VERIFIED,
     attribution_basis: str = "source_default",
     source_default_entity: str | None = None,
@@ -24,14 +25,17 @@ def _claim(
             "mospi": "Ministry of Statistics and Programme Implementation",
             "world_bank": "World Bank",
             "imf": "International Monetary Fund",
+            "ddnews": "DD News",
         }.get(source_id)
 
+    numeric_text = value_text.lower().replace("per cent", "").rstrip("%").strip()
     return StructuredClaim(
         entity=entity,
         metric="Policy Repo Rate",
         value_text=value_text,
-        value_numeric=Decimal(value_text.rstrip("%")),
+        value_numeric=Decimal(numeric_text),
         unit="%",
+        publication_date=publication_date,
         effective_date=effective_date,
         source_id=source_id,
         source_url=f"https://example.test/{source_id}",
@@ -80,6 +84,28 @@ def test_verified_rbi_primary_with_qualified_imf_corroboration_becomes_trusted()
     assert decision.state is ClaimState.TRUSTED
     assert decision.reason == "verified_primary_with_independent_authoritative_corroboration"
     assert decision.corroborating_source_ids == ("imf",)
+
+
+def test_verified_rbi_primary_accepts_equivalent_ddnews_percent_wording() -> None:
+    primary = _primary(
+        effective_date=None,
+        publication_date=date(2026, 6, 5),
+    )
+    secondary = _claim(
+        source_id="ddnews",
+        entity="Reserve Bank of India",
+        document_id="77777777-7777-7777-7777-777777777777",
+        value_text="5.25 per cent",
+        effective_date=None,
+        publication_date=date(2026, 6, 5),
+        attribution_basis="explicit_local_alias",
+        source_default_entity="DD News",
+    )
+
+    decision = assess_trust(primary, [primary, secondary])
+
+    assert decision.state is ClaimState.TRUSTED
+    assert decision.corroborating_source_ids == ("ddnews",)
 
 
 def test_candidate_target_cannot_skip_verification() -> None:
