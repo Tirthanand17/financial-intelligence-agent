@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.claims.models import ClaimState, StructuredClaim
-from app.claims.trust import assess_trust
+from app.claims.trust import TrustDecision, assess_trust
 from app.storage.database import (
     ClaimEntityAttributionRecord,
     ClaimRecord,
@@ -111,6 +111,25 @@ def _attributions_for_records(
     return {attribution.claim_id: attribution for attribution in attributions}
 
 
+def assess_persisted_trust(
+    session: Session,
+    target_record: ClaimRecord,
+) -> TrustDecision:
+    """Assess one persisted claim without mutating state or creating audit rows."""
+    records = _comparable_records(session, target_record)
+    attribution_map = _attributions_for_records(session, records)
+    claims = [
+        _record_to_claim(record, attribution_map.get(record.id))
+        for record in records
+    ]
+    target_claim = next(
+        claim
+        for record, claim in zip(records, claims, strict=True)
+        if record.id == target_record.id
+    )
+    return assess_trust(target_claim, claims)
+
+
 def reconcile_trust_for_claim(
     session: Session,
     target_record: ClaimRecord,
@@ -128,19 +147,7 @@ def reconcile_trust_for_claim(
     reconciliation after promotion is idempotent because the target is already
     TRUSTED and therefore creates no second event.
     """
-    records = _comparable_records(session, target_record)
-    attribution_map = _attributions_for_records(session, records)
-    claims = [
-        _record_to_claim(record, attribution_map.get(record.id))
-        for record in records
-    ]
-
-    target_claim = next(
-        claim
-        for record, claim in zip(records, claims, strict=True)
-        if record.id == target_record.id
-    )
-    decision = assess_trust(target_claim, claims)
+    decision = assess_persisted_trust(session, target_record)
     current_state = ClaimState(target_record.state)
 
     if decision.state is not ClaimState.TRUSTED:
