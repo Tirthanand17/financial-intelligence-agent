@@ -22,7 +22,7 @@ from app.monitoring.measurements import (
 from app.monitoring.preflight import preflight_discovered_url
 from app.monitoring.processor import process_pending_discoveries
 from app.monitoring.registry import get_monitor
-from app.services.ingestion import ingest_url
+from app.services.ingestion import ingest_downloaded_document
 from app.storage.database import (
     DocumentRecord,
     SourceMonitorDiscoveryRecord,
@@ -42,8 +42,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Controlled Phase 7 processing of exactly one pending discovery. "
-            "It preflights first, requires an exact SHA-256 match on the persistence "
-            "download, then validates the database/B2/Qdrant deltas."
+            "It preflights one trusted download in memory and, when approved, "
+            "persists those exact same validated bytes without downloading again."
         )
     )
     parser.add_argument(
@@ -54,7 +54,7 @@ def main() -> None:
     parser.add_argument(
         "--allow-network",
         action="store_true",
-        help="Required explicit consent for capacity checks and public-source downloads.",
+        help="Required explicit consent for capacity checks and one public-source download.",
     )
     parser.add_argument(
         "--allow-write",
@@ -103,6 +103,7 @@ def main() -> None:
     print("SOURCE_AUTO_INGEST_ENABLED: false")
     print("TRUST_PROMOTION_ENABLED: false")
     print("WRITE BOUND: exactly one pending discovery")
+    print("EVIDENCE MODE: persist exact preflighted bytes; no second source download")
 
     with get_session() as session:
         usage_before = measure_cloud_usage(
@@ -182,9 +183,10 @@ def main() -> None:
         )
 
         def stable_ingest(source_id: str, url: str) -> dict[str, object]:
-            return ingest_url(
-                source_id,
-                url,
+            if source_id != preflight.source_id or url != preflight.requested_url:
+                raise ValueError("Controlled queue item changed after preflight")
+            return ingest_downloaded_document(
+                preflight.downloaded,
                 expected_sha256=preflight.sha256,
             )
 
@@ -223,6 +225,12 @@ def main() -> None:
             f"ingested={result.ingested_count} duplicate={result.duplicate_count} "
             f"failed={result.failed_count} rejected={result.rejected_count}"
         )
+        if refreshed is not None:
+            print(
+                "QUEUE RESULT: "
+                f"status={refreshed.status} error_code={refreshed.last_error_code or '-'} "
+                f"attempt_count={refreshed.attempt_count}"
+            )
         print(
             "DATABASE DELTA: "
             f"documents={after_db.documents - before_db.documents} "
@@ -305,15 +313,15 @@ def main() -> None:
         if blockers:
             print(
                 "FINAL: RECONCILIATION-REQUIRED - the one-item operation completed "
-                "but post-write validation found a mismatch. Evidence was preserved; "
+                "but post-write validation found a mismatch. Existing data was preserved; "
                 f"nothing was silently deleted. blockers={','.join(dict.fromkeys(blockers))}"
             )
             return
 
         print(
             "FINAL: PASS-COMMITTED - exactly one preflighted pending discovery was "
-            "processed through trusted ingestion, its SHA remained stable, queue linkage "
-            "and cross-store deltas reconciled, and no trust event was created."
+            "processed through trusted ingestion using the exact preflighted bytes, "
+            "queue linkage and cross-store deltas reconciled, and no trust event was created."
         )
 
 
