@@ -33,7 +33,7 @@ class ClaimRecord(Base):
     """Persisted, source-grounded financial claim.
 
     Claim state is stored as text so state transitions can be handled explicitly
-    by the Phase 2 verification layer instead of being coupled to a database enum.
+    by the verification layer instead of being coupled to a database enum.
     """
 
     __tablename__ = "claims"
@@ -70,10 +70,33 @@ class ClaimRecord(Base):
     )
 
 
+class ClaimEntityAttributionRecord(Base):
+    """Auditable provenance for the canonical subject assigned to a claim.
+
+    This stays separate from `claims` so Phase 3 can be deployed without an
+    in-place migration of the existing claim table. One claim has at most one
+    recorded extraction-time attribution decision. Claims created before entity
+    attribution can be backfilled idempotently from preserved source evidence.
+    """
+
+    __tablename__ = "claim_entity_attributions"
+
+    claim_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    canonical_entity: Mapped[str] = mapped_column(String(255), index=True)
+    source_default_entity: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    basis: Mapped[str] = mapped_column(String(64), index=True)
+    matched_aliases: Mapped[str] = mapped_column(Text)
+    ambiguous_candidates: Mapped[str] = mapped_column(Text)
+    evidence_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class ClaimSupersessionRecord(Base):
     """Audit trail linking an older claim to the newer claim that replaced it.
 
-    This is a separate table so Phase 2 can add version history to an existing
+    This is a separate table so version history can be added to an existing
     deployment without altering the already-created `claims` table. The older
     claim remains in place and only its state changes to `superseded`.
     """

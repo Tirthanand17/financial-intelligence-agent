@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, phase-1-foundation, phase-2-structured-claims]
+    branches: [main, 'phase-*']
   pull_request:
     branches: [main]
   workflow_dispatch:
