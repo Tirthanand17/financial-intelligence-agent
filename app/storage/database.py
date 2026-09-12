@@ -157,6 +157,82 @@ class ClaimTrustEventRecord(Base):
     )
 
 
+class SourceMonitorStateRecord(Base):
+    """Current operational state for one explicit source monitor.
+
+    This table contains only non-secret operational metadata. It never stores
+    credentials, request headers, or raw exception messages.
+    """
+
+    __tablename__ = "source_monitor_states"
+
+    monitor_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(64), index=True)
+    url: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str] = mapped_column(String(128))
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_document_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class SourceMonitorRunRecord(Base):
+    """Append-only, secret-free observability event for one monitor attempt."""
+
+    __tablename__ = "source_monitor_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    monitor_id: Mapped[str] = mapped_column(String(128), index=True)
+    source_id: Mapped[str] = mapped_column(String(64), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str] = mapped_column(String(128))
+    discovered_count: Mapped[int] = mapped_column(Integer, default=0)
+    ingested_count: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
+    blocking_services: Mapped[str] = mapped_column(Text, default="[]")
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class SourceMonitorDiscoveryRecord(Base):
+    """Idempotent queue record for an allow-listed feed item.
+
+    The unique discovery key is based on monitor + URL rather than mutable feed
+    metadata, so title/date corrections update the existing queue item instead of
+    creating duplicate work. Automated processing stays independently gated and
+    always re-validates the URL immediately before ingestion.
+    """
+
+    __tablename__ = "source_monitor_discoveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    discovery_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    item_fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    monitor_id: Mapped[str] = mapped_column(String(128), index=True)
+    source_id: Mapped[str] = mapped_column(String(64), index=True)
+    url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publication_date = mapped_column(Date, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    seen_count: Mapped[int] = mapped_column(Integer, default=1)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
 @lru_cache
 def _session_factory() -> sessionmaker[Session]:
     settings = get_settings()

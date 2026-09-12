@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     qdrant_vector_name: str = "dense"
     qdrant_vector_size: int = 384
 
-    # S3-compatible object storage (Cloudflare R2 recommended initially).
+    # S3-compatible object storage (Backblaze B2 in the validated deployment).
     s3_endpoint_url: str
     s3_access_key_id: str
     s3_secret_access_key: str
@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # VERIFIED claim to TRUSTED until real dated primary + independent evidence
     # has been validated end-to-end.
     trust_promotion_enabled: bool = False
+
+    # Phase 5 source monitoring also fails closed by default. Discovery and
+    # automatic ingestion have independent gates: enabling feed observation must
+    # never silently enable following/ingesting discovered links.
+    source_monitoring_enabled: bool = False
+    source_auto_ingest_enabled: bool = False
+    monitor_supabase_max_mb: int | None = None
+    monitor_b2_max_mb: int | None = None
+    monitor_qdrant_max_points: int | None = None
+    monitor_capacity_low_watermark_percent: int = 10
 
     # Reserved for a later grounded-generation layer.
     openai_api_key: str | None = None
@@ -57,6 +67,24 @@ class Settings(BaseSettings):
         """
         if isinstance(value, str) and value.startswith("postgresql://"):
             return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        return value
+
+    @field_validator(
+        "monitor_supabase_max_mb",
+        "monitor_b2_max_mb",
+        "monitor_qdrant_max_points",
+    )
+    @classmethod
+    def positive_optional_monitor_budget(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("monitor capacity ceilings must be positive")
+        return value
+
+    @field_validator("monitor_capacity_low_watermark_percent")
+    @classmethod
+    def valid_monitor_low_watermark(cls, value: int) -> int:
+        if not 1 <= value <= 50:
+            raise ValueError("monitor capacity low watermark must be between 1 and 50")
         return value
 
 
