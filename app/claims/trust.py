@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 
 from app.claims.models import ClaimState, StructuredClaim
-from app.sources.registry import AuthorityLevel, get_source
+from app.sources.registry import (
+    AuthorityLevel,
+    get_source,
+    get_source_independence_group,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +53,13 @@ def _source_definition(claim: StructuredClaim):
         return None
 
 
+def _source_group(source_id: str) -> str:
+    try:
+        return get_source_independence_group(source_id)
+    except ValueError:
+        return source_id
+
+
 def _has_auditable_entity_attribution(claim: StructuredClaim) -> bool:
     """Return whether the claim's subject assignment is safe for trust policy.
 
@@ -88,13 +99,14 @@ def assess_trust(
     - the target comes directly from an authority-A source whose source identity
       is the same canonical entity as the claim subject;
     - the target has auditable entity-attribution provenance;
-    - no active comparable claim carries a different value; and
-    - at least one independent authority-A/B source corroborates the same value,
-      with auditable entity attribution. Cross-entity corroborators must name the
-      subject explicitly in their local evidence.
+    - no active comparable claim from another independent publisher/institution
+      group carries a different value; and
+    - at least one independent authority-A/B group corroborates the same value,
+      with auditable entity attribution. Multiple brands owned by one publisher
+      count as one corroborating group.
 
-    This function never treats extraction, retrieval score, or source reputation
-    alone as sufficient for trust.
+    This function never treats extraction, retrieval score, source reputation,
+    or two sibling brands as sufficient for trust.
     """
     if target.state is ClaimState.TRUSTED:
         return TrustDecision(
@@ -142,6 +154,7 @@ def assess_trust(
 
     target_key = _comparison_key(target)
     target_value = _value_key(target)
+    target_group = _source_group(target.source_id)
 
     comparable = [
         claim
@@ -150,15 +163,21 @@ def assess_trust(
         and claim.state not in {ClaimState.REJECTED, ClaimState.SUPERSEDED}
     ]
 
-    if any(_value_key(claim) != target_value for claim in comparable):
+    if any(
+        _value_key(claim) != target_value
+        and _source_group(claim.source_id) != target_group
+        for claim in comparable
+    ):
         return TrustDecision(
             state=ClaimState.VERIFIED,
             reason="active_comparable_value_conflict",
         )
 
+    qualified_groups: set[str] = set()
     qualified_sources: set[str] = set()
     for claim in comparable:
-        if claim.source_id == target.source_id:
+        claim_group = _source_group(claim.source_id)
+        if claim_group == target_group:
             continue
         if claim.state not in {ClaimState.VERIFIED, ClaimState.TRUSTED}:
             continue
@@ -174,9 +193,10 @@ def assess_trust(
         if not _has_auditable_entity_attribution(claim):
             continue
 
+        qualified_groups.add(claim_group)
         qualified_sources.add(claim.source_id)
 
-    if not qualified_sources:
+    if not qualified_groups:
         return TrustDecision(
             state=ClaimState.VERIFIED,
             reason="insufficient_qualified_corroboration",
