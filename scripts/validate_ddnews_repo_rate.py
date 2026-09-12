@@ -1,6 +1,14 @@
 from decimal import Decimal
+from pathlib import Path
+import sys
 
 from sqlalchemy import select
+
+# Allow `python scripts/validate_ddnews_repo_rate.py` from a repository checkout
+# without requiring callers to set PYTHONPATH manually.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from app.services.ingestion import ingest_url
 from app.storage.database import (
