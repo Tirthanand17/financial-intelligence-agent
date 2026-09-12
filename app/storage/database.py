@@ -204,6 +204,32 @@ class SourceMonitorRunRecord(Base):
     )
 
 
+class SourceMonitorDiscoveryRecord(Base):
+    """Idempotent queue record for an allow-listed feed item.
+
+    The unique discovery key is based on monitor + URL rather than mutable feed
+    metadata, so title/date corrections update the existing queue item instead of
+    creating duplicate work. Phase 5 initially leaves every item pending; a later
+    gated ingestion worker may transition it only after re-validating the URL.
+    """
+
+    __tablename__ = "source_monitor_discoveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    discovery_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    item_fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    monitor_id: Mapped[str] = mapped_column(String(128), index=True)
+    source_id: Mapped[str] = mapped_column(String(64), index=True)
+    url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publication_date = mapped_column(Date, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    seen_count: Mapped[int] = mapped_column(Integer, default=1)
+
+
 @lru_cache
 def _session_factory() -> sessionmaker[Session]:
     settings = get_settings()
