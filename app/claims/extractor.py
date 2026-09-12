@@ -8,11 +8,15 @@ from app.claims.models import ClaimState, StructuredClaim
 # Phase 2 starts conservatively with explicit key/value facts such as
 # `Policy Repo Rate : 5.25%`. Free-form prose extraction comes later and must
 # not be allowed to invent values that are not visible in the evidence.
+_NUMBER_WITH_OPTIONAL_UNIT = (
+    r"(?:₹|\$|€)?\s*[-+]?\d[\d,.]*"
+    r"\s*(?:%|bps|basis points|crore|lakh|million|billion|trillion)?"
+)
+
 STRUCTURED_FACT_RE = re.compile(
     r"(?P<metric>[A-Za-z][A-Za-z0-9 /&().,'’\-]{1,100}?)\s*:\s*"
-    r"(?P<value>(?:₹|\$|€)?\s*[-+]?\d[\d,.]*"
-    r"(?:\s*(?:-|–|to)\s*[-+]?\d[\d,.]*)?"
-    r"\s*(?:%|bps|basis points|crore|lakh|million|billion|trillion)?)",
+    rf"(?P<value>{_NUMBER_WITH_OPTIONAL_UNIT}"
+    rf"(?:\s*(?:-|–|to)\s*{_NUMBER_WITH_OPTIONAL_UNIT})?)",
     re.IGNORECASE,
 )
 
