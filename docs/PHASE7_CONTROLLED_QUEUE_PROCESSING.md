@@ -14,11 +14,11 @@ SOURCE_AUTO_INGEST_ENABLED=false
 TRUST_PROMOTION_ENABLED=false
 ```
 
-The one-shot preflight uses its own explicit `--allow-network` consent flag. It never overrides or persists those runtime switches.
+The one-shot tools use explicit command-line consent flags. They never override or persist those runtime switches.
 
-## What the preflight validates
+## Read-only preflight
 
-For the oldest pending item in the selected registered monitor, the script:
+For the oldest pending item in the selected registered monitor, the preflight:
 
 1. measures Supabase, Backblaze B2, and Qdrant capacity against the operator-approved internal ceilings;
 2. re-validates the queued URL against the source HTTPS allow-list immediately before download;
@@ -31,24 +31,29 @@ For the oldest pending item in the selected registered monitor, the script:
 9. checks whether the content hash is already represented by an existing document; and
 10. verifies that queue state, knowledge-table counts, B2 storage usage, and Qdrant point count did not change.
 
-## What it does not do
+The preflight does not change the discovery row, create knowledge rows, upload raw evidence, create vectors, or promote trust.
 
-The preflight does not:
+### Real validation completed
 
-- change the discovery row;
-- increment queue attempt counters;
-- create a monitor audit row;
-- create or update a document;
-- create claims, supersessions, verification events, or trust events;
-- upload raw evidence to Backblaze B2;
-- create Qdrant vectors;
-- mark an item ingested or duplicate;
-- enable any scheduler or automatic worker; or
-- perform any financial action.
+On 2026-09-12 the configured Codespace successfully preflighted the persisted RBI queue item:
 
-## One-shot command
+```text
+RBI announces OMO Sale of Government of India Securities
+publication_date=2026-09-11
+content_type=text/html
+bytes=113676
+text_chars=8300
+chunks=3
+eligible_claims=8
+sha256=fe64bd310a664f0a694bc25aaf770c62d15ce3392171d35287899b1b92f81630
+existing_document=no
+Backblaze delta=0
+Qdrant delta=0
+```
 
-Run only from the configured private Codespace/environment that already contains the project's existing `.env` values:
+The run ended `PASS-READ-ONLY`, proving that the real queued source can pass the normal trusted extraction path without mutating queue or knowledge state.
+
+## One-shot read-only command
 
 ```bash
 MONITOR_SUPABASE_MAX_MB=400 \
@@ -60,8 +65,40 @@ python scripts/phase7_preflight_pending_discovery.py --allow-network
 
 The limits above are the previously validated conservative project safety ceilings, not provider-enforced quotas.
 
-## Why preflight comes before controlled ingestion
+## Controlled single-item write boundary
 
-The existing ingestion pipeline writes to three independent systems: private object storage, Qdrant, and PostgreSQL. Those systems do not share one atomic transaction. Phase 7 therefore observes the real queued source shape first and verifies that normal extraction succeeds before designing a controlled single-item write with explicit cross-store reconciliation and failure handling.
+The next checkpoint persists **at most one** pending discovery and is still not a scheduler or autonomous worker.
 
-Automatic queue ingestion remains disabled until that write boundary is tested against real evidence.
+Before writing, the script repeats the in-memory preflight. The persistence download must then have the exact same SHA-256 as the preflighted bytes. `ingest_url(..., expected_sha256=...)` checks this before any database, object-store, or vector-store write. If the public source changes between preflight and persistence download, the operation fails closed.
+
+The controlled write calls the existing bounded queue processor for exactly one item and then reconciles:
+
+- discovery row identity, status, attempt counter, and document linkage;
+- document, claim, attribution, supersession, verification, and trust-event counts;
+- Backblaze B2 byte delta;
+- Qdrant point delta; and
+- post-write cloud capacity.
+
+A successful new document must produce exactly one new document row, B2 growth equal to the preflighted raw byte count, and Qdrant growth equal to the preflighted chunk count. A duplicate must create no new document, object, or vector points. Trust-event count must remain unchanged in both cases.
+
+Because PostgreSQL, B2, and Qdrant do not share one atomic transaction, a detected post-write mismatch is reported as `RECONCILIATION-REQUIRED`. Evidence is preserved rather than silently deleted.
+
+## Controlled one-item command
+
+Run only after the read-only preflight has passed and only from the configured private Codespace:
+
+```bash
+MONITOR_SUPABASE_MAX_MB=400 \
+MONITOR_B2_MAX_MB=8192 \
+MONITOR_QDRANT_MAX_POINTS=100000 \
+MONITOR_CAPACITY_LOW_WATERMARK_PERCENT=10 \
+python scripts/phase7_controlled_ingest_one.py --allow-network --allow-write
+```
+
+`--allow-write` is an explicit one-run consent flag. The normal monitoring, automatic-ingestion, and trust-promotion settings remain false before and after the command.
+
+## Why this remains controlled
+
+The existing ingestion pipeline writes to three independent systems: private object storage, Qdrant, and PostgreSQL. Those systems do not share one atomic transaction. Phase 7 therefore advances in bounded checkpoints: observe the real queued source shape, lock the persistence download to the approved preflight hash, process exactly one queue item, and reconcile every affected store before any recurring worker is considered.
+
+Automatic queue ingestion remains disabled until this real one-item write boundary has also been validated.
