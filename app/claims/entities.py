@@ -70,6 +70,14 @@ def _canonicalize_default(default_entity: str) -> str:
     return " ".join(default_entity.split()).strip()
 
 
+def _definition_for_canonical(canonical_name: str) -> EntityDefinition | None:
+    normalized_name = _normalized(canonical_name)
+    for definition in ENTITY_DEFINITIONS:
+        if _normalized(definition.canonical_name) == normalized_name:
+            return definition
+    return None
+
+
 def resolve_entity(text: str, *, default_entity: str) -> EntityResolution:
     """Resolve a known canonical subject only when local evidence is explicit.
 
@@ -106,3 +114,33 @@ def resolve_entity(text: str, *, default_entity: str) -> EntityResolution:
         canonical_name=canonical_default,
         basis="source_default",
     )
+
+
+def normalize_metric_for_entity(metric: str, *, canonical_entity: str) -> str:
+    """Strip only an explicit leading canonical entity name/alias from a metric.
+
+    This helps cross-source comparison when secondary evidence writes a metric as
+    `RBI Policy Repo Rate` while primary RBI evidence writes `Policy Repo Rate`.
+    Nothing is removed unless the metric starts with a known alias for the already
+    resolved entity, so generic words inside a metric are left unchanged.
+    """
+    cleaned = " ".join(metric.split()).strip()
+    definition = _definition_for_canonical(canonical_entity)
+    if definition is None:
+        return cleaned
+
+    aliases = sorted(definition.aliases, key=len, reverse=True)
+    for alias in aliases:
+        pieces = [re.escape(piece) for piece in alias.split()]
+        alias_body = r"\s+".join(pieces)
+        match = re.match(
+            rf"^{alias_body}(?:\s*[-–—:]\s*|\s+)(?P<rest>.+)$",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        if match is not None:
+            rest = match.group("rest").strip()
+            if rest:
+                return rest
+
+    return cleaned
