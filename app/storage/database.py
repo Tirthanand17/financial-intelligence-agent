@@ -91,6 +91,28 @@ class ClaimSupersessionRecord(Base):
     )
 
 
+class ClaimVerificationEventRecord(Base):
+    """Audit trail for automatic verification/conflict state transitions.
+
+    Events are append-only. The current state remains on `claims`, while this
+    table preserves why an automatic transition occurred and which independent
+    source IDs supported or conflicted with the claim at that time.
+    """
+
+    __tablename__ = "claim_verification_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    claim_id: Mapped[str] = mapped_column(String(36), index=True)
+    from_state: Mapped[str] = mapped_column(String(32))
+    to_state: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str] = mapped_column(String(128))
+    supporting_source_ids: Mapped[str] = mapped_column(Text)
+    conflicting_source_ids: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 @lru_cache
 def _session_factory() -> sessionmaker[Session]:
     settings = get_settings()
