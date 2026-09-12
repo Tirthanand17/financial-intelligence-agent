@@ -13,6 +13,7 @@ from app.monitoring.measurements import (
     measure_cloud_usage,
 )
 from app.monitoring.probe import probe_feed_read_only
+from app.monitoring.readiness import evaluate_monitor_readiness
 from app.monitoring.registry import get_monitor
 from app.storage.database import get_session
 from app.storage.object_store import get_s3_client
@@ -74,6 +75,11 @@ def main() -> None:
         ),
     )
     probe = probe_feed_read_only(monitor)
+    readiness = evaluate_monitor_readiness(
+        capacity=capacity,
+        probe=probe,
+        source_monitoring_enabled=settings.source_monitoring_enabled,
+    )
 
     print("PHASE 6 CONTROLLED VALIDATION - READ ONLY")
     print(f"MONITOR: {monitor.monitor_id} source={monitor.source_id}")
@@ -105,6 +111,11 @@ def main() -> None:
     print(
         "LATEST FEED PUBLICATION DATE: "
         f"{probe.latest_publication_date.isoformat() if probe.latest_publication_date else '-'}"
+    )
+    readiness_blockers = ",".join(readiness.blockers) or "-"
+    print(
+        f"MONITOR READINESS: ready={str(readiness.ready).lower()} "
+        f"reason={readiness.reason} blockers={readiness_blockers}"
     )
     print(
         "FINAL: READ-ONLY - no monitor queue, document, claim, trust, or cloud object state was changed."
