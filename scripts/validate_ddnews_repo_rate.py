@@ -22,6 +22,8 @@ DDNEWS_URL = (
     "https://ddnews.gov.in/en/"
     "rbi-keeps-repo-rate-unchanged-at-5-25-retains-neutral-stance-amid-global-uncertainties/"
 )
+EXPECTED_DATE = "2026-06-05"
+EXPECTED_VALUE = Decimal("5.25")
 
 
 def main() -> None:
@@ -31,6 +33,12 @@ def main() -> None:
     evidence is preserved in B2, document provenance/claims are stored in
     PostgreSQL, and chunks are indexed in Qdrant. Re-running is safe because the
     existing ingestion path is content/idempotency aware.
+
+    One document may repeat the same fact in its headline and body, and source
+    wording may use either `%` or `per cent`. Those are separate evidence
+    occurrences, not independent sources, so validation accepts one or more
+    equivalent explicitly attributed RBI claims and still counts DD News only
+    once during verification.
 
     The script does NOT promote any claim to TRUSTED.
     """
@@ -55,7 +63,8 @@ def main() -> None:
         if not claims:
             raise SystemExit("FINAL: FAIL - no DD News Policy Repo Rate claim found")
 
-        valid = []
+        qualified: list[ClaimRecord] = []
+        nonqualifying = 0
         for claim in claims:
             attribution = session.scalar(
                 select(ClaimEntityAttributionRecord).where(
@@ -71,26 +80,39 @@ def main() -> None:
                 f"attribution={basis}"
             )
 
-            if (
+            is_qualified = (
                 claim.entity == "Reserve Bank of India"
-                and claim.value_numeric == Decimal("5.25")
                 and claim.unit == "%"
                 and claim.publication_date is not None
-                and claim.publication_date.isoformat() == "2026-06-05"
+                and claim.publication_date.isoformat() == EXPECTED_DATE
                 and basis == "explicit_local_alias"
-            ):
-                valid.append(claim)
+            )
+            if is_qualified:
+                qualified.append(claim)
+            else:
+                nonqualifying += 1
 
-        if len(valid) != 1:
+        if not qualified:
             raise SystemExit(
-                "FINAL: FAIL - expected exactly one dated, explicitly attributed "
-                "RBI repo-rate claim at 5.25%"
+                "FINAL: FAIL - no dated, explicitly attributed RBI repo-rate "
+                "claim was found in the preserved DD News evidence"
             )
 
+        values = {claim.value_numeric for claim in qualified}
+        if values != {EXPECTED_VALUE}:
+            raise SystemExit(
+                "FINAL: FAIL - explicitly attributed RBI repo-rate evidence "
+                f"contains unexpected or conflicting numeric values: {sorted(map(str, values))}"
+            )
+
+        print(f"QUALIFIED RBI EVIDENCE OCCURRENCES: {len(qualified)}")
+        print(f"NONQUALIFYING CANDIDATE OCCURRENCES: {nonqualifying}")
+
     print(
-        "FINAL: PASS - real DD News evidence is preserved and yields one dated, "
-        "explicitly attributed RBI Policy Repo Rate 5.25% claim."
+        "FINAL: PASS - real DD News evidence is preserved and contains dated, "
+        "explicitly attributed RBI Policy Repo Rate 5.25% corroboration."
     )
+    print("SOURCE INDEPENDENCE: DD News counts once regardless of repeated mentions.")
     print("TRUST PROMOTION: NOT RUN")
 
 
