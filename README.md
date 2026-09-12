@@ -4,108 +4,109 @@ Private, continuously learning financial and economic intelligence system.
 
 ## Current Phase 1 milestone
 
-The project now has a local-first, source-grounded pipeline that can:
+The project uses a cloud-first, source-grounded pipeline designed to keep local PC storage very small.
+
+It can:
 
 1. accept a URL only from an allow-listed trusted source;
 2. download HTML/PDF/text with redirect and size checks;
-3. preserve the original file in MinIO;
-4. record provenance in PostgreSQL;
+3. preserve the original file in S3-compatible private object storage;
+4. record provenance in hosted PostgreSQL;
 5. extract and chunk text;
-6. create local embeddings with FastEmbed;
-7. index searchable knowledge in Qdrant; and
+6. generate embeddings with Qdrant Cloud Inference (no local embedding-model download);
+7. index searchable knowledge in Qdrant Cloud; and
 8. answer questions from retrieved evidence with source URLs and confidence.
 
 The first trusted registry includes RBI, SEBI, NSE, MoSPI, World Bank, and IMF. Automated continuous crawling is intentionally not enabled yet.
 
-## Architecture
+## Cloud-first architecture
 
+- **GitHub Private** — source code and version control
+- **GitHub Codespaces** — development compute so the project does not consume your PC disk
 - **FastAPI** — API layer
-- **PostgreSQL** — document provenance and later structured facts/events
-- **Qdrant** — semantic/vector retrieval
-- **MinIO** — raw source documents/evidence
-- **FastEmbed** — local embeddings; no paid embedding API required
-- **Docker Compose** — local infrastructure
+- **Supabase PostgreSQL** — structured provenance and later facts/events
+- **Qdrant Cloud** — vector retrieval plus server-side embeddings
+- **Cloudflare R2** — raw documents/evidence through its S3-compatible API
+- **GitHub Actions** — unit tests in the cloud
 
-## Local setup (Windows)
+Docker is not required for the recommended setup.
 
-### 1. Prerequisites
+## Local PC storage policy
 
-Install Python 3.11+, Git, and Docker Desktop.
+The recommended workflow does not install PostgreSQL, Qdrant, MinIO, Docker images, or embedding models on your PC.
 
-### 2. Clone and enter the repository
+You may keep the Git clone locally because it is very small, or delete it after opening the project in Codespaces. Do not store downloaded research documents or databases in the repository.
 
-```powershell
-git clone https://github.com/Tirthanand17/financial-intelligence-agent.git
-cd financial-intelligence-agent
-git checkout phase-1-foundation
-```
+## Cloud services to create
 
-### 3. Create local environment configuration
+### 1. Supabase
 
-```powershell
-Copy-Item .env.example .env
-```
+Create a free project and obtain a PostgreSQL connection string. Put it in `DATABASE_URL`.
 
-Change the placeholder PostgreSQL and MinIO passwords in `.env`. Never commit `.env`.
+### 2. Qdrant Cloud
 
-### 4. Start PostgreSQL, Qdrant, and MinIO
+Create a free cluster, enable Cloud Inference, and obtain:
 
-```powershell
-docker compose up -d
-```
+- cluster URL -> `QDRANT_URL`
+- API key -> `QDRANT_API_KEY`
 
-### 5. Install Python dependencies
+The default embedding model is:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+`sentence-transformers/all-MiniLM-L6-v2`
 
-The first embedding operation downloads the configured local embedding model.
+Embeddings are created in Qdrant Cloud instead of being downloaded to the developer machine.
 
-### 6. Run tests
+### 3. Cloudflare R2
 
-```powershell
+Create an R2 bucket named `financial-intelligence`, create an S3-compatible API token, and set:
+
+- `S3_ENDPOINT_URL`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+- `S3_BUCKET`
+
+Never commit these secrets.
+
+## Recommended development workflow: GitHub Codespaces
+
+1. Open this repository on GitHub.
+2. Select **Code -> Codespaces -> Create codespace**.
+3. Ensure the codespace is on branch `phase-1-foundation`.
+4. The dev-container setup installs Python dependencies automatically in the cloud.
+5. Create a private `.env` inside the codespace from `.env.example` and fill in the cloud credentials.
+
+Then run:
+
+```bash
 pytest -q
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 7. Start the API
-
-```powershell
-uvicorn app.main:app --reload
-```
-
-Health check:
-
-```text
-GET http://127.0.0.1:8000/health
-```
-
-Expected:
-
-```json
-{"status":"ok"}
-```
+Codespaces will offer to forward port 8000.
 
 ## First RBI end-to-end test
 
-With the API running, execute:
+With the API running in Codespaces, open a second terminal and execute:
 
-```powershell
+```bash
 python scripts/rbi_smoke_test.py
 ```
 
-By default this ingests the official RBI Bulletin site and asks a broad question about the retrieved economic content.
+By default this ingests an official RBI source and asks a broad question about the retrieved economic content.
 
 You can also supply a specific official RBI HTML/PDF URL and your own question:
 
-```powershell
+```bash
 python scripts/rbi_smoke_test.py "https://<official-rbi-url>" "What does this document say about inflation?"
 ```
 
 ## API endpoints
+
+### Health
+
+```text
+GET /health
+```
 
 ### List trusted sources
 
@@ -140,11 +141,13 @@ Content-Type: application/json
 }
 ```
 
-Current answers use **extractive grounded mode**. The system selects statements from the retrieved source evidence rather than asking a generative model to invent an answer. Each response includes evidence, source URL, retrieval score, source authority level, and retrieval timestamp.
+Current answers use **extractive grounded mode**. The system selects statements from retrieved source evidence rather than asking a generative model to invent an answer. Each response includes evidence, source URL, retrieval score, source authority level, and retrieval timestamp.
 
 ## Data safety
 
-Do not commit API keys, passwords, downloaded PDFs, databases, embeddings, or large financial datasets. `.gitignore` excludes these from Git. Raw documents remain in private storage.
+Do not commit API keys, passwords, downloaded PDFs, databases, embeddings, or large financial datasets. `.gitignore` excludes local secrets and data. Raw documents remain in private object storage.
+
+For Codespaces, store credentials as Codespaces secrets when possible instead of keeping long-lived credentials in files.
 
 ## Important design rule
 
@@ -152,7 +155,7 @@ New internet material is not automatically treated as truth. Source identity and
 
 ## Next milestone
 
-After this Phase 1 branch is locally verified:
+After Phase 1 cloud validation:
 
 `RBI ingestion -> structured claim extraction -> publication/effective dates -> verification -> PostgreSQL facts -> improved grounded answers`
 
