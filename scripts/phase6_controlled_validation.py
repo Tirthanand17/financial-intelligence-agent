@@ -97,6 +97,10 @@ def main() -> None:
         f"FEED PROBE: status={probe.status} reason={probe.reason} "
         f"discovered={probe.discovered_count} rejected={probe.rejected_count}"
     )
+    rejection_summary = ",".join(
+        f"{reason}={count}" for reason, count in probe.rejection_reasons
+    ) or "-"
+    print(f"FEED REJECTIONS: {rejection_summary}")
     print(f"FEED SHA256: {probe.content_sha256 or '-'}")
     print(
         "LATEST FEED PUBLICATION DATE: "
