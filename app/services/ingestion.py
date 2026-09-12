@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.ingestion.chunker import chunk_text
 from app.ingestion.downloader import download_trusted_document
 from app.ingestion.extractor import extract_document
 from app.ingestion.quality import validate_extracted_document
+from app.sources.metadata import extract_source_publication_date
 from app.storage.database import DocumentRecord, find_document_by_sha, get_session
 from app.storage.object_store import get_raw_document, put_raw_document
 from app.storage.vector_store import index_chunks
@@ -23,6 +25,7 @@ def _extract_claim_candidates(
     source_id: str,
     source_url: str,
     entity: str,
+    publication_date: date | None = None,
 ):
     return extract_structured_claims(
         chunks=chunks,
@@ -30,6 +33,7 @@ def _extract_claim_candidates(
         source_id=source_id,
         source_url=source_url,
         entity=entity,
+        publication_date=publication_date,
     )
 
 
@@ -39,7 +43,11 @@ def _stage_claims(session: Session, claims) -> tuple[int, int, int]:
     Supersession is applied before cross-source verification so obsolete
     source-local versions cannot be counted as active corroborating evidence.
     Both steps are attempted for newly created and already-known claims, making
-    ingestion backward-compatible and idempotent for older Phase 2 data.
+    ingestion backward-compatible and idempotent for older data.
+
+    TRUSTED promotion is still intentionally not automatic here. Phase 4 first
+    validates real dated cross-source evidence before trust reconciliation is
+    enabled in the normal ingestion path.
     """
     created_count = 0
     supersessions_created = 0
@@ -74,12 +82,12 @@ def _backfill_existing_document_claims(
     chunk_size: int,
     chunk_overlap: int,
 ) -> tuple[int, int, int, int]:
-    """Idempotently derive Phase 2 claims for a Phase 1 document.
+    """Idempotently derive claims for an already preserved document.
 
     Existing raw evidence is reread from private object storage rather than
     downloading the public source again. This preserves the exact evidence that
-    was originally accepted and lets previously indexed Phase 1 documents gain
-    structured claims, source-local version history, and verification safely.
+    was originally accepted and lets previously indexed documents gain newer
+    structured-claim capabilities safely.
     """
     content = get_raw_document(record.object_key)
     extracted = extract_document(content, record.content_type)
@@ -92,12 +100,14 @@ def _backfill_existing_document_claims(
     if not chunks:
         raise ValueError("Stored document produced no searchable chunks during claim backfill")
 
+    publication_date = extract_source_publication_date(record.source_id, extracted.text)
     claims = _extract_claim_candidates(
         chunks=chunks,
         document_id=record.id,
         source_id=record.source_id,
         source_url=record.final_url,
         entity=record.source_name,
+        publication_date=publication_date,
     )
     (
         created_count,
@@ -156,12 +166,14 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
             raise ValueError("Document produced no searchable chunks")
 
         document_id = str(uuid4())
+        publication_date = extract_source_publication_date(source_id, extracted.text)
         claims = _extract_claim_candidates(
             chunks=chunks,
             document_id=document_id,
             source_id=source_id,
             source_url=downloaded.final_url,
             entity=downloaded.source.name,
+            publication_date=publication_date,
         )
 
         object_key = put_raw_document(
