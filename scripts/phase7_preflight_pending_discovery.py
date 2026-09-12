@@ -132,7 +132,12 @@ def main() -> None:
         print(f"QUEUE ITEM: title={record.title or '-'} publication_date={record.publication_date or '-'}")
 
         try:
-            result = preflight_discovered_url(record.source_id, record.url)
+            result = preflight_discovered_url(
+                record.source_id,
+                record.url,
+                chunk_size=settings.chunk_size_chars,
+                chunk_overlap=settings.chunk_overlap_chars,
+            )
         except ConnectionError:
             print("FINAL: BLOCKED - source download failed with transient_network_error; no writes were made.")
             session.rollback()
