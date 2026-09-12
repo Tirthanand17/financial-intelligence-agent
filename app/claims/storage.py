@@ -1,3 +1,4 @@
+import json
 from hashlib import sha256
 from uuid import uuid4
 
@@ -5,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.claims.models import StructuredClaim
-from app.storage.database import ClaimRecord
+from app.storage.database import ClaimEntityAttributionRecord, ClaimRecord
 
 
 def _normalized_text(value: str | None) -> str:
@@ -17,8 +18,9 @@ def _normalized_text(value: str | None) -> str:
 def claim_fingerprint(claim: StructuredClaim) -> str:
     """Build a deterministic identity for one source-backed claim.
 
-    The fingerprint intentionally excludes confidence and state because those
-    can change during verification without creating a different underlying fact.
+    The fingerprint intentionally excludes confidence, state, and entity
+    attribution derivation metadata because those can change or be backfilled
+    without creating a different underlying fact.
     """
     parts = [
         claim.document_id,
@@ -39,24 +41,70 @@ def find_claim_by_fingerprint(session: Session, fingerprint: str) -> ClaimRecord
     return session.scalar(select(ClaimRecord).where(ClaimRecord.fingerprint == fingerprint))
 
 
+def save_entity_attribution(
+    session: Session,
+    record: ClaimRecord,
+    claim: StructuredClaim,
+) -> tuple[ClaimEntityAttributionRecord | None, bool]:
+    """Persist one extraction-time entity attribution decision idempotently.
+
+    Older/manually-created claims use the default `unspecified` basis and do not
+    fabricate attribution provenance. If the same claim is later re-derived from
+    preserved evidence by the Phase 3 extractor, this helper can backfill the
+    missing attribution row without changing the claim's identity.
+    """
+    if claim.entity_attribution_basis == "unspecified":
+        return None, False
+
+    if _normalized_text(record.entity) != _normalized_text(claim.entity):
+        raise ValueError("Entity attribution does not match persisted claim entity")
+
+    existing = session.scalar(
+        select(ClaimEntityAttributionRecord).where(
+            ClaimEntityAttributionRecord.claim_id == record.id
+        )
+    )
+    if existing is not None:
+        if _normalized_text(existing.canonical_entity) != _normalized_text(claim.entity):
+            raise ValueError("Persisted entity attribution conflicts with claim entity")
+        return existing, False
+
+    attribution = ClaimEntityAttributionRecord(
+        claim_id=record.id,
+        canonical_entity=claim.entity,
+        source_default_entity=claim.entity_source_default,
+        basis=claim.entity_attribution_basis,
+        matched_aliases=json.dumps(list(claim.entity_matched_aliases)),
+        ambiguous_candidates=json.dumps(list(claim.entity_ambiguous_candidates)),
+        evidence_text=claim.entity_evidence_text,
+    )
+    session.add(attribution)
+    return attribution, True
+
+
 def save_claim(
     session: Session,
     claim: StructuredClaim,
     *,
     commit: bool = True,
 ) -> tuple[ClaimRecord, bool]:
-    """Persist one claim idempotently.
+    """Persist one claim and any supplied derivation provenance idempotently.
 
     Returns `(record, created)` so callers can distinguish a new claim from an
     already-known one. Verification/state promotion is deliberately separate.
 
-    `commit=False` lets an ingestion workflow stage several claims and the
-    document provenance record in one PostgreSQL transaction. The default keeps
-    the original standalone behaviour for direct callers and tests.
+    `commit=False` lets an ingestion workflow stage claims, attribution
+    provenance, document provenance, versioning, and verification in one
+    PostgreSQL transaction.
     """
     fingerprint = claim_fingerprint(claim)
     existing = find_claim_by_fingerprint(session, fingerprint)
     if existing is not None:
+        _, attribution_created = save_entity_attribution(session, existing, claim)
+        if commit and attribution_created:
+            session.commit()
+        elif not commit and attribution_created:
+            session.flush()
         return existing, False
 
     record = ClaimRecord(
@@ -78,13 +126,14 @@ def save_claim(
         state=claim.state.value,
     )
     session.add(record)
+    save_entity_attribution(session, record, claim)
 
     if commit:
         session.commit()
         session.refresh(record)
     else:
-        # Flush makes the staged row visible to later duplicate checks in the
-        # same transaction without prematurely committing the whole ingestion.
+        # Flush makes staged rows visible to later duplicate/version/verification
+        # checks in the same transaction without prematurely committing ingestion.
         session.flush()
 
     return record, True
