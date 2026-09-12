@@ -31,19 +31,27 @@ def download_trusted_document(source_id: str, url: str) -> DownloadedDocument:
     }
 
     with httpx.Client(follow_redirects=True, timeout=45.0, headers=headers) as client:
-        response = client.get(url)
-        response.raise_for_status()
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
 
-    final_url = str(response.url)
-    final_host = (urlparse(final_url).hostname or "").lower()
-    if final_host not in source.allowed_hosts:
-        raise ValueError("Trusted source redirected to a non-allow-listed host")
+            final_url = str(response.url)
+            final_host = (urlparse(final_url).hostname or "").lower()
+            if final_host not in source.allowed_hosts:
+                raise ValueError("Trusted source redirected to a non-allow-listed host")
 
-    content = response.content
-    if len(content) > max_bytes:
-        raise ValueError(f"Document exceeds configured {settings.max_download_mb} MB limit")
+            declared_length = response.headers.get("content-length")
+            if declared_length and declared_length.isdigit() and int(declared_length) > max_bytes:
+                raise ValueError(f"Document exceeds configured {settings.max_download_mb} MB limit")
 
-    content_type = response.headers.get("content-type", "application/octet-stream").split(";", 1)[0].lower()
+            buffer = bytearray()
+            for block in response.iter_bytes(chunk_size=64 * 1024):
+                buffer.extend(block)
+                if len(buffer) > max_bytes:
+                    raise ValueError(f"Document exceeds configured {settings.max_download_mb} MB limit")
+
+            content = bytes(buffer)
+            content_type = response.headers.get("content-type", "application/octet-stream").split(";", 1)[0].lower()
+
     if content_type == "application/octet-stream":
         lower_url = final_url.lower()
         if lower_url.endswith(".pdf"):
