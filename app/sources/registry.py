@@ -23,6 +23,7 @@ class SourceDefinition:
     country: str | None = None
     requires_license: bool = False
     enabled: bool = True
+    independence_group: str | None = None
 
 
 TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
@@ -32,6 +33,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         base_url="https://www.rbi.org.in/",
         allowed_hosts=(
             "www.rbi.org.in",
+            "rbi.org.in",
             "website.rbi.org.in",
             "m.rbi.org.in",
             "rbidocs.rbi.org.in",
@@ -40,6 +42,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         category="central_bank",
         authority_level=AuthorityLevel.A,
         country="IN",
+        independence_group="rbi",
     ),
     SourceDefinition(
         source_id="sebi",
@@ -49,6 +52,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         category="regulator",
         authority_level=AuthorityLevel.A,
         country="IN",
+        independence_group="sebi",
     ),
     SourceDefinition(
         source_id="nse",
@@ -58,6 +62,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         category="exchange",
         authority_level=AuthorityLevel.A,
         country="IN",
+        independence_group="nse",
     ),
     SourceDefinition(
         source_id="mospi",
@@ -67,6 +72,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         category="government_statistics",
         authority_level=AuthorityLevel.A,
         country="IN",
+        independence_group="mospi",
     ),
     SourceDefinition(
         source_id="world_bank",
@@ -80,6 +86,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         ),
         category="international_organization",
         authority_level=AuthorityLevel.B,
+        independence_group="world_bank",
     ),
     SourceDefinition(
         source_id="imf",
@@ -88,6 +95,7 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         allowed_hosts=("www.imf.org", "imf.org"),
         category="international_organization",
         authority_level=AuthorityLevel.B,
+        independence_group="imf",
     ),
     SourceDefinition(
         source_id="ddnews",
@@ -97,6 +105,17 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         category="government_public_broadcaster",
         authority_level=AuthorityLevel.B,
         country="IN",
+        independence_group="prasar_bharati",
+    ),
+    SourceDefinition(
+        source_id="akashvani",
+        name="Akashvani News",
+        base_url="https://newsonair.gov.in/",
+        allowed_hosts=("newsonair.gov.in", "www.newsonair.gov.in"),
+        category="government_public_broadcaster",
+        authority_level=AuthorityLevel.B,
+        country="IN",
+        independence_group="prasar_bharati",
     ),
 )
 
@@ -106,6 +125,17 @@ def get_source(source_id: str) -> SourceDefinition:
         if source.source_id == source_id and source.enabled:
             return source
     raise ValueError(f"Unknown or disabled source: {source_id}")
+
+
+def get_source_independence_group(source_id: str) -> str:
+    """Return the organization-level independence group for one source.
+
+    Different websites or brands owned by the same publisher must not be counted
+    as independent corroboration. Unknown synthetic/test sources safely fall back
+    to their own source ID in the verification layer rather than being merged.
+    """
+    source = get_source(source_id)
+    return source.independence_group or source.source_id
 
 
 def validate_source_url(source_id: str, url: str) -> SourceDefinition:
