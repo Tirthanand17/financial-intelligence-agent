@@ -86,6 +86,8 @@ def _local_window_text(
     start_index: int,
     end_index: int,
 ) -> str:
+    # Temporal metadata stays intentionally tight so a date from an unrelated
+    # nearby section is not inherited by a claim.
     window_start = max(0, start_index - 2)
     window_end = min(len(clean_lines), end_index + 3)
     return "\n".join(clean_lines[window_start:window_end])
@@ -122,15 +124,13 @@ def _local_entity_and_metric(
 ) -> tuple[str, str]:
     """Resolve a canonical subject only from explicit nearby entity aliases.
 
-    If the local window is ambiguous, `resolve_entity` keeps the supplied source
-    entity. Metric normalization only removes a leading alias for the entity that
-    was actually resolved, preventing unrelated entity names from being stripped.
+    Entity section headers often sit a few lines above a dated fact, so entity
+    attribution gets a slightly wider backward window than temporal parsing.
+    Ambiguous windows still default to the source entity rather than guessing.
     """
-    local_text = _local_window_text(
-        clean_lines=clean_lines,
-        start_index=start_index,
-        end_index=end_index,
-    )
+    window_start = max(0, start_index - 4)
+    window_end = min(len(clean_lines), end_index + 3)
+    local_text = "\n".join(clean_lines[window_start:window_end])
     resolution = resolve_entity(local_text, default_entity=default_entity)
     canonical_metric = normalize_metric_for_entity(
         metric,
