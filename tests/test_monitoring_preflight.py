@@ -58,6 +58,9 @@ def test_preflight_runs_normal_extraction_without_persistence() -> None:
     assert result.publication_date is not None
     assert result.publication_date.isoformat() == "2026-09-11"
     assert result.eligible_claim_count >= 1
+    assert result.downloaded.content == content
+    assert result.downloaded.sha256 == result.sha256
+    assert "<html>" not in repr(result)
 
 
 def test_preflight_rejects_challenge_page() -> None:
@@ -97,9 +100,7 @@ def test_preflight_rejects_non_allowlisted_url_before_download() -> None:
 
 
 def test_preflight_rejects_empty_extracted_document() -> None:
-    # script/style/noscript/svg nodes are deliberately removed by the normal HTML
-    # extractor, leaving no user-visible evidence text at all.
-    content = b"<html><body><script>ignored</script><style>.x{}</style></body></html>"
+    content = b"<html><head><title>Empty</title></head><body></body></html>"
 
     with pytest.raises(ValueError, match="No extractable text"):
         preflight_discovered_url(
