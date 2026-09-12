@@ -16,21 +16,37 @@ def get_qdrant_client() -> QdrantClient:
     )
 
 
+def _ensure_filter_indexes() -> None:
+    """Ensure payload indexes required by Qdrant Cloud strict-mode filters."""
+    settings = get_settings()
+    client = get_qdrant_client()
+    collection = client.get_collection(settings.qdrant_collection)
+    payload_schema = collection.payload_schema or {}
+
+    if "source_id" not in payload_schema:
+        client.create_payload_index(
+            collection_name=settings.qdrant_collection,
+            field_name="source_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+            wait=True,
+        )
+
+
 def _ensure_collection() -> None:
     settings = get_settings()
     client = get_qdrant_client()
-    if client.collection_exists(settings.qdrant_collection):
-        return
+    if not client.collection_exists(settings.qdrant_collection):
+        client.create_collection(
+            collection_name=settings.qdrant_collection,
+            vectors_config={
+                settings.qdrant_vector_name: models.VectorParams(
+                    size=settings.qdrant_vector_size,
+                    distance=models.Distance.COSINE,
+                )
+            },
+        )
 
-    client.create_collection(
-        collection_name=settings.qdrant_collection,
-        vectors_config={
-            settings.qdrant_vector_name: models.VectorParams(
-                size=settings.qdrant_vector_size,
-                distance=models.Distance.COSINE,
-            )
-        },
-    )
+    _ensure_filter_indexes()
 
 
 def index_chunks(*, document_id: str, chunks: list[str], payload_base: dict[str, object]) -> None:
@@ -70,6 +86,10 @@ def search_chunks(question: str, *, limit: int = 5, source_id: str | None = None
     client = get_qdrant_client()
     if not client.collection_exists(settings.qdrant_collection):
         return []
+
+    # Existing collections created before the index was added also need to be
+    # repaired before a strict-mode filtered query is attempted.
+    _ensure_filter_indexes()
 
     query_filter = None
     if source_id:
