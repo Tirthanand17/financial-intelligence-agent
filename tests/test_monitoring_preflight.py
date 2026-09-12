@@ -100,7 +100,7 @@ def test_preflight_rejects_non_allowlisted_url_before_download() -> None:
 
 
 def test_preflight_rejects_empty_extracted_document() -> None:
-    content = b"<html><head><title>Empty</title></head><body></body></html>"
+    content = b"<html><head></head><body></body></html>"
 
     with pytest.raises(ValueError, match="No extractable text"):
         preflight_discovered_url(
