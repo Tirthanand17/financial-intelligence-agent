@@ -51,10 +51,11 @@ def _best_label_suffix(label: str, question_terms: set[str]) -> tuple[str, int]:
     return " ".join(best_words), best_overlap
 
 
-def _structured_value_answer(
+def _structured_value_candidate(
     question_terms: set[str], matches: list[dict[str, object]]
-) -> str | None:
-    candidates: list[tuple[int, float, int, str]] = []
+) -> tuple[str, int, float, int] | None:
+    """Return answer plus lexical/retrieval metadata for the best exact fact."""
+    candidates: list[tuple[int, float, int, str, int]] = []
 
     for evidence_index, match in enumerate(matches, start=1):
         text = str(match.get("text", ""))
@@ -69,13 +70,21 @@ def _structured_value_answer(
             answer = f"{label} : {value} [{evidence_index}]"
             # Prefer stronger lexical overlap first, then vector relevance, then
             # shorter labels so navigation text does not drown out the metric.
-            candidates.append((overlap, retrieval_score, -len(label), answer))
+            candidates.append((overlap, retrieval_score, -len(label), answer, evidence_index))
 
     if not candidates:
         return None
 
     candidates.sort(reverse=True)
-    return candidates[0][3]
+    overlap, retrieval_score, _negative_length, answer, evidence_index = candidates[0]
+    return answer, overlap, retrieval_score, evidence_index
+
+
+def _structured_value_answer(
+    question_terms: set[str], matches: list[dict[str, object]]
+) -> str | None:
+    candidate = _structured_value_candidate(question_terms, matches)
+    return candidate[0] if candidate else None
 
 
 def _extractive_answer(question: str, matches: list[dict[str, object]]) -> str:
@@ -120,6 +129,37 @@ def _extractive_answer(question: str, matches: list[dict[str, object]]) -> str:
     return "No indexed evidence was found for this question."
 
 
+def _confidence_for_answer(question: str, matches: list[dict[str, object]]) -> tuple[str, str]:
+    """Calibrate confidence from answer evidence, not vector score alone.
+
+    Exact numeric key/value facts can be highly reliable even when the vector
+    score is modest, particularly on navigation-heavy official pages. We only
+    raise confidence when the question strongly matches the extracted label and
+    the supporting source has high authority.
+    """
+    if not matches:
+        return "low", "no_evidence"
+
+    question_terms = _keywords(question)
+    structured = _structured_value_candidate(question_terms, matches)
+    if structured:
+        _answer, overlap, _retrieval_score, evidence_index = structured
+        supporting_match = matches[evidence_index - 1]
+        authority = str(supporting_match.get("authority_level", "")).upper()
+
+        if overlap >= 2 and authority in {"A", "B"}:
+            return "high", "exact_structured_fact_from_high_authority_source"
+        if overlap >= 1:
+            return "medium", "exact_structured_fact"
+
+    top_score = float(matches[0].get("score", 0.0))
+    if top_score >= 0.70:
+        return "high", "strong_semantic_retrieval"
+    if top_score >= 0.50:
+        return "medium", "moderate_semantic_retrieval"
+    return "low", "weak_semantic_retrieval"
+
+
 def answer_question(question: str, *, top_k: int = 5, source_id: str | None = None) -> dict[str, object]:
     matches = search_chunks(question, limit=top_k, source_id=source_id)
     answer = _extractive_answer(question, matches)
@@ -141,14 +181,14 @@ def answer_question(question: str, *, top_k: int = 5, source_id: str | None = No
             }
         )
 
-    top_score = float(matches[0].get("score", 0.0)) if matches else 0.0
-    confidence = "high" if top_score >= 0.70 else "medium" if top_score >= 0.50 else "low"
+    confidence, confidence_basis = _confidence_for_answer(question, matches)
 
     return {
         "question": question,
         "answer_mode": "extractive_grounded",
         "answer": answer,
         "confidence": confidence,
+        "confidence_basis": confidence_basis,
         "evidence": evidence,
         "warning": "The answer is limited to retrieved indexed evidence and is not financial advice.",
     }
