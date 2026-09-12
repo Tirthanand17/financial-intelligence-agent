@@ -11,10 +11,11 @@ from app.claims.verification_storage import reconcile_verification_for_claim
 from app.claims.versioning_storage import apply_supersession_for_newer_claim
 from app.core.config import get_settings
 from app.ingestion.chunker import chunk_text
-from app.ingestion.downloader import download_trusted_document
+from app.ingestion.downloader import DownloadedDocument, download_trusted_document
 from app.ingestion.extractor import extract_document
 from app.ingestion.quality import validate_extracted_document
 from app.sources.metadata import extract_source_publication_date
+from app.sources.registry import validate_source_url
 from app.storage.database import DocumentRecord, find_document_by_sha, get_session
 from app.storage.object_store import get_raw_document, put_raw_document
 from app.storage.vector_store import index_chunks
@@ -152,30 +153,36 @@ def _backfill_existing_document_claims(
     )
 
 
-def ingest_url(
-    source_id: str,
-    url: str,
+def ingest_downloaded_document(
+    downloaded: DownloadedDocument,
     *,
     expected_sha256: str | None = None,
 ) -> dict[str, object]:
-    """Download and persist one trusted source URL.
+    """Persist bytes already accepted by the trusted downloader/preflight path.
 
-    ``expected_sha256`` is an optional Phase 7 content-stability guard. When a
-    caller has just preflighted a queued URL, it can require the persistence
-    download to match the exact preflighted bytes. The comparison happens before
-    any database, object-store, or vector-store writes. A mismatch fails closed.
+    Phase 7 uses this entry point to eliminate the time-of-check/time-of-use gap
+    caused by downloading a dynamic HTML page twice. The exact bytes that passed
+    URL policy, trusted download, extraction, challenge-page validation, chunking,
+    temporal parsing, and claim eligibility preflight are the bytes persisted.
+
+    The source and final URLs are revalidated before any persistence begins, and
+    an optional expected SHA-256 still fails closed before touching PostgreSQL,
+    object storage, or the vector store.
     """
-    settings = get_settings()
-    trust_promotion_enabled = bool(
-        getattr(settings, "trust_promotion_enabled", False)
-    )
-    downloaded = download_trusted_document(source_id, url)
+    source_id = downloaded.source.source_id
+    validate_source_url(source_id, downloaded.source_url)
+    validate_source_url(source_id, downloaded.final_url)
 
     if expected_sha256 is not None and downloaded.sha256 != expected_sha256:
         raise ValueError(
             "Downloaded evidence changed after preflight; refusing to persist "
             "content whose SHA-256 does not match the approved preflight bytes."
         )
+
+    settings = get_settings()
+    trust_promotion_enabled = bool(
+        getattr(settings, "trust_promotion_enabled", False)
+    )
 
     with get_session() as session:
         existing = find_document_by_sha(session, downloaded.sha256)
@@ -295,3 +302,22 @@ def ingest_url(
         "retrieved_at": downloaded.retrieved_at.isoformat(),
         "object_key": object_key,
     }
+
+
+def ingest_url(
+    source_id: str,
+    url: str,
+    *,
+    expected_sha256: str | None = None,
+) -> dict[str, object]:
+    """Download one trusted URL and persist the accepted bytes.
+
+    Ordinary ingestion performs one trusted download and then delegates to
+    :func:`ingest_downloaded_document`. ``expected_sha256`` remains available to
+    callers that independently know the exact content hash they require.
+    """
+    downloaded = download_trusted_document(source_id, url)
+    return ingest_downloaded_document(
+        downloaded,
+        expected_sha256=expected_sha256,
+    )
