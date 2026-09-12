@@ -1,5 +1,7 @@
 import re
 
+from app.claims.query import StructuredClaimResolution, resolve_structured_claim_question
+from app.storage.database import get_session
 from app.storage.vector_store import search_chunks
 
 
@@ -160,7 +162,57 @@ def _confidence_for_answer(question: str, matches: list[dict[str, object]]) -> t
     return "low", "weak_semantic_retrieval"
 
 
+def _structured_claim_resolution(
+    question: str,
+    source_id: str | None,
+) -> StructuredClaimResolution | None:
+    with get_session() as session:
+        return resolve_structured_claim_question(
+            session,
+            question,
+            source_id=source_id,
+        )
+
+
+def _structured_response(
+    question: str,
+    resolution: StructuredClaimResolution,
+) -> dict[str, object]:
+    if resolution.status == "answer":
+        mode = "structured_claim_grounded"
+        warning = (
+            "The answer is grounded in persisted structured evidence. "
+            "Candidate claims are not independently verified and this is not financial advice."
+        )
+    elif resolution.status == "conflict":
+        mode = "structured_claim_conflict"
+        warning = (
+            "Conflicting structured evidence exists, so no single disputed value is presented as fact. "
+            "This is not financial advice."
+        )
+    else:
+        mode = "structured_claim_guard"
+        warning = (
+            "Only inactive structured history was matched, so an old value was not presented as current fact. "
+            "This is not financial advice."
+        )
+
+    return {
+        "question": question,
+        "answer_mode": mode,
+        "answer": resolution.answer,
+        "confidence": resolution.confidence,
+        "confidence_basis": resolution.confidence_basis,
+        "evidence": list(resolution.evidence),
+        "warning": warning,
+    }
+
+
 def answer_question(question: str, *, top_k: int = 5, source_id: str | None = None) -> dict[str, object]:
+    structured = _structured_claim_resolution(question, source_id)
+    if structured is not None:
+        return _structured_response(question, structured)
+
     matches = search_chunks(question, limit=top_k, source_id=source_id)
     answer = _extractive_answer(question, matches)
 
