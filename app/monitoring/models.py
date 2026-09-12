@@ -75,3 +75,16 @@ class MonitorDecision:
     state: MonitorState
     reason: str
     blocking_services: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorExecutionResult:
+    monitor_id: str
+    outcome: MonitorRunOutcome
+    reason: str
+    discovered_count: int = 0
+    ingested_count: int = 0
+    duplicate_count: int = 0
+    rejected_discovery_count: int = 0
+    blocking_services: tuple[str, ...] = ()
+    error_code: str | None = None
