@@ -26,6 +26,26 @@ def test_extracts_repo_rate_from_rbi_style_line() -> None:
     assert repo.evidence_chunk_index == 0
 
 
+def test_extracts_repo_rate_from_rbi_split_html_rows() -> None:
+    claims = _extract(
+        [
+            "Current\nRates\nPolicy Rates\nPolicy Repo Rate\n:\n5.25%\n"
+            "Standing Deposit Facility Rate\n:\n5.00%"
+        ]
+    )
+
+    extracted = {claim.metric: claim for claim in claims}
+
+    repo = extracted["Policy Repo Rate"]
+    assert repo.value_text == "5.25%"
+    assert repo.value_numeric == Decimal("5.25")
+    assert repo.unit == "%"
+    assert repo.evidence_text == "Policy Repo Rate\n:\n5.25%"
+
+    sdf = extracted["Standing Deposit Facility Rate"]
+    assert sdf.value_text == "5.00%"
+
+
 def test_extracts_multiple_explicit_rbi_metrics() -> None:
     claims = _extract(["Reserve Ratios\nCRR : 3.00%\nSLR : 18.00%"])
 
@@ -35,6 +55,14 @@ def test_extracts_multiple_explicit_rbi_metrics() -> None:
 
 def test_does_not_turn_navigation_headings_into_claims() -> None:
     claims = _extract(["RBI Regulated Entities\nMonetary Policy\nPolicy Repo Rate\nFAQs"])
+
+    assert claims == []
+
+
+def test_rejects_period_heading_that_looks_like_numeric_range() -> None:
+    claims = _extract(
+        ["Performance of Private Corporate Business Sector during Q1 : 2026-27"]
+    )
 
     assert claims == []
 
