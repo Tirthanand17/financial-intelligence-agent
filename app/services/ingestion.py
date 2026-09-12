@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.ingestion.chunker import chunk_text
 from app.ingestion.downloader import download_trusted_document
 from app.ingestion.extractor import extract_document
+from app.ingestion.quality import validate_extracted_document
 from app.storage.database import DocumentRecord, find_document_by_sha, get_session
 from app.storage.object_store import put_raw_document
 from app.storage.vector_store import index_chunks
@@ -26,6 +27,8 @@ def ingest_url(source_id: str, url: str) -> dict[str, object]:
             }
 
         extracted = extract_document(downloaded.content, downloaded.content_type)
+        validate_extracted_document(extracted, downloaded.content_type)
+
         chunks = chunk_text(
             extracted.text,
             chunk_size=settings.chunk_size_chars,
