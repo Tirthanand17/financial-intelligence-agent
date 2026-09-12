@@ -8,15 +8,15 @@ from sqlalchemy.orm import Session
 import app.services.ingestion as ingestion_service
 from app.ingestion.downloader import DownloadedDocument
 from app.sources.registry import AuthorityLevel, SourceDefinition
-from app.storage.database import Base, ClaimRecord
+from app.storage.database import Base, ClaimRecord, ClaimSupersessionRecord
 
 
 CONTENT = b"Policy Repo Rate : 5.25%\nBase Rate : 8.40% - 10.00%"
 SOURCE_URL = "https://www.rbi.org.in/"
 
 
-def _downloaded() -> DownloadedDocument:
-    source = SourceDefinition(
+def _source() -> SourceDefinition:
+    return SourceDefinition(
         source_id="rbi",
         name="Reserve Bank of India",
         base_url=SOURCE_URL,
@@ -25,13 +25,16 @@ def _downloaded() -> DownloadedDocument:
         authority_level=AuthorityLevel.A,
         country="IN",
     )
+
+
+def _downloaded(content: bytes = CONTENT) -> DownloadedDocument:
     return DownloadedDocument(
-        source=source,
+        source=_source(),
         source_url=SOURCE_URL,
         final_url=SOURCE_URL,
-        content=CONTENT,
+        content=content,
         content_type="text/plain",
-        sha256=sha256(CONTENT).hexdigest(),
+        sha256=sha256(content).hexdigest(),
         retrieved_at=datetime(2026, 9, 12, tzinfo=UTC),
     )
 
@@ -72,6 +75,7 @@ def test_new_ingestion_persists_candidate_claims(monkeypatch) -> None:
     assert result["status"] == "indexed"
     assert result["claim_count"] == 2
     assert result["claims_created"] == 2
+    assert result["supersessions_created"] == 0
     assert len(records) == 2
     assert {record.value_text for record in records} == {"5.25%", "8.40% - 10.00%"}
     assert all(record.state == "candidate" for record in records)
@@ -98,7 +102,91 @@ def test_existing_phase1_document_is_backfilled_idempotently(monkeypatch) -> Non
     assert backfilled["status"] == "already_indexed"
     assert backfilled["claim_count"] == 2
     assert backfilled["claims_created"] == 2
+    assert backfilled["supersessions_created"] == 0
     assert repeated["status"] == "already_indexed"
     assert repeated["claim_count"] == 2
     assert repeated["claims_created"] == 0
+    assert repeated["supersessions_created"] == 0
     assert count == 2
+
+
+def test_newer_dated_ingestion_supersedes_older_claim_and_preserves_history(monkeypatch) -> None:
+    engine = _configure_isolated_ingestion(monkeypatch)
+
+    older_content = (
+        b"Effective Date\n2026-01-01\nPolicy Repo Rate : 5.50%"
+    )
+    newer_content = (
+        b"Effective Date\n2026-02-01\nPolicy Repo Rate : 5.25%"
+    )
+    downloads = iter((_downloaded(older_content), _downloaded(newer_content)))
+
+    monkeypatch.setattr(
+        ingestion_service,
+        "download_trusted_document",
+        lambda source_id, url: next(downloads),
+    )
+
+    first = ingestion_service.ingest_url("rbi", SOURCE_URL)
+    second = ingestion_service.ingest_url("rbi", SOURCE_URL)
+
+    with Session(engine) as session:
+        claims = list(
+            session.scalars(
+                select(ClaimRecord)
+                .where(ClaimRecord.metric == "Policy Repo Rate")
+                .order_by(ClaimRecord.effective_date)
+            )
+        )
+        audits = list(session.scalars(select(ClaimSupersessionRecord)))
+
+    assert first["claims_created"] == 1
+    assert first["supersessions_created"] == 0
+    assert second["claims_created"] == 1
+    assert second["supersessions_created"] == 1
+
+    assert len(claims) == 2
+    assert claims[0].value_text == "5.50%"
+    assert claims[0].state == "superseded"
+    assert claims[1].value_text == "5.25%"
+    assert claims[1].state == "candidate"
+
+    assert len(audits) == 1
+    assert audits[0].older_claim_id == claims[0].id
+    assert audits[0].newer_claim_id == claims[1].id
+    assert audits[0].newer_document_id == claims[1].document_id
+
+
+def test_reingesting_known_newer_claim_does_not_duplicate_supersession(monkeypatch) -> None:
+    engine = _configure_isolated_ingestion(monkeypatch)
+
+    older_content = b"Effective Date\n2026-01-01\nPolicy Repo Rate : 5.50%"
+    newer_content = b"Effective Date\n2026-02-01\nPolicy Repo Rate : 5.25%"
+    downloaded_older = _downloaded(older_content)
+    downloaded_newer = _downloaded(newer_content)
+    downloads = iter((downloaded_older, downloaded_newer, downloaded_newer))
+
+    monkeypatch.setattr(
+        ingestion_service,
+        "download_trusted_document",
+        lambda source_id, url: next(downloads),
+    )
+    monkeypatch.setattr(
+        ingestion_service,
+        "get_raw_document",
+        lambda object_key: newer_content,
+    )
+
+    ingestion_service.ingest_url("rbi", SOURCE_URL)
+    ingestion_service.ingest_url("rbi", SOURCE_URL)
+    repeated = ingestion_service.ingest_url("rbi", SOURCE_URL)
+
+    with Session(engine) as session:
+        audit_count = session.scalar(
+            select(func.count()).select_from(ClaimSupersessionRecord)
+        )
+
+    assert repeated["status"] == "already_indexed"
+    assert repeated["claims_created"] == 0
+    assert repeated["supersessions_created"] == 0
+    assert audit_count == 1
