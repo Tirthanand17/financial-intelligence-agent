@@ -72,7 +72,12 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         source_id="world_bank",
         name="World Bank",
         base_url="https://www.worldbank.org/",
-        allowed_hosts=("www.worldbank.org", "worldbank.org", "api.worldbank.org", "documents1.worldbank.org"),
+        allowed_hosts=(
+            "www.worldbank.org",
+            "worldbank.org",
+            "api.worldbank.org",
+            "documents1.worldbank.org",
+        ),
         category="international_organization",
         authority_level=AuthorityLevel.B,
     ),
@@ -83,6 +88,15 @@ TRUSTED_SOURCES: tuple[SourceDefinition, ...] = (
         allowed_hosts=("www.imf.org", "imf.org"),
         category="international_organization",
         authority_level=AuthorityLevel.B,
+    ),
+    SourceDefinition(
+        source_id="ddnews",
+        name="DD News",
+        base_url="https://ddnews.gov.in/",
+        allowed_hosts=("ddnews.gov.in", "www.ddnews.gov.in"),
+        category="government_public_broadcaster",
+        authority_level=AuthorityLevel.B,
+        country="IN",
     ),
 )
 
