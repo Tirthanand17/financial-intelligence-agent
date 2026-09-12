@@ -45,6 +45,7 @@ def test_probe_returns_bounded_aggregate_feed_diagnostics_only() -> None:
     assert result.reason == "feed_probe_completed"
     assert result.discovered_count == 2
     assert result.rejected_count == 0
+    assert result.rejection_reasons == ()
     assert result.content_sha256 == "a" * 64
     assert result.latest_publication_date is not None
     assert result.latest_publication_date.isoformat() == "2026-09-12"
@@ -68,6 +69,7 @@ def test_cross_host_feed_item_is_counted_rejected_without_following() -> None:
     assert result.status == "ok"
     assert result.discovered_count == 1
     assert result.rejected_count == 1
+    assert result.rejection_reasons == (("source_policy_rejection", 1),)
 
 
 def test_non_xml_response_is_rejected() -> None:
