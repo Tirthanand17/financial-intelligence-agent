@@ -18,8 +18,13 @@ class Settings(BaseSettings):
     minio_bucket: str = "financial-intelligence"
     minio_secure: bool = False
 
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    max_download_mb: int = 50
+    chunk_size_chars: int = 3500
+    chunk_overlap_chars: int = 400
+
+    # Reserved for a later grounded-generation layer.
     openai_api_key: str | None = None
-    embedding_model: str | None = None
     chat_model: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
