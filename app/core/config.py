@@ -38,10 +38,11 @@ class Settings(BaseSettings):
     # has been validated end-to-end.
     trust_promotion_enabled: bool = False
 
-    # Phase 5 source monitoring also fails closed by default. Provider quotas are
-    # never guessed: automatic ingestion needs explicit operator-approved ceilings
-    # plus successful usage measurements for every required cloud service.
+    # Phase 5 source monitoring also fails closed by default. Discovery and
+    # automatic ingestion have independent gates: enabling feed observation must
+    # never silently enable following/ingesting discovered links.
     source_monitoring_enabled: bool = False
+    source_auto_ingest_enabled: bool = False
     monitor_supabase_max_mb: int | None = None
     monitor_b2_max_mb: int | None = None
     monitor_qdrant_max_points: int | None = None
