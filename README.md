@@ -2,9 +2,9 @@
 
 Private, continuously learning financial and economic intelligence system.
 
-## Current Phase 4 milestone
+## Current Phase 5 milestone
 
-The project uses a cloud-first, source-grounded pipeline designed to keep local PC storage very small while preserving evidence, provenance, version history, claim state, entity attribution, source independence, and trust-promotion auditability.
+The project uses a cloud-first, source-grounded pipeline designed to keep local PC storage very small while preserving evidence, provenance, version history, claim state, entity attribution, source independence, trust-promotion auditability, and monitoring history.
 
 It can:
 
@@ -12,76 +12,77 @@ It can:
 2. download HTML/PDF/text and supported RSS/Atom/XML feeds with redirect and size checks;
 3. reject obvious anti-bot/challenge pages and document URLs that collapse to an unrelated source homepage;
 4. retry bounded transient network failures without retrying policy/safety failures;
-5. preserve the original file in S3-compatible private object storage;
+5. preserve original evidence in S3-compatible private object storage;
 6. record document provenance in hosted PostgreSQL;
 7. extract and chunk text;
-8. generate embeddings with Qdrant Cloud Inference (no local embedding-model download);
+8. generate embeddings with Qdrant Cloud Inference without a local embedding-model download;
 9. index searchable knowledge in Qdrant Cloud;
 10. extract explicit structured numeric claims without inventing values;
-11. attach publication/effective dates only when explicitly supported by local or source-specific evidence;
-12. resolve known canonical subjects from explicit local aliases such as `RBI`, `SEBI`, `NSE`, `MoSPI`, `World Bank`, or `IMF`;
-13. refuse to guess a non-default subject when multiple known entities occur in the local evidence window;
-14. normalize only a leading alias for the already-resolved entity, for example `RBI Policy Repo Rate` -> `Policy Repo Rate`;
-15. persist entity-attribution provenance separately from the claim itself;
-16. preserve source-local version history instead of deleting older claims;
-17. reconcile independent-source agreement/disagreement with append-only verification audit events;
-18. group sibling brands from the same publisher so they do not count as independent corroboration;
-19. evaluate conservative VERIFIED -> TRUSTED promotion rules with append-only trust audit events;
-20. keep live automatic trust promotion disabled by default behind `TRUST_PROMOTION_ENABLED=false` until real dated primary + independent evidence passes end-to-end validation;
-21. expose entity-attribution provenance in structured QA evidence; and
-22. answer suitable factual questions from structured claim state first, while refusing to present conflicted or superseded values as current facts.
+11. attach publication/effective dates only when explicit evidence supports them;
+12. resolve known canonical entities conservatively and persist attribution provenance;
+13. preserve source-local claim version history instead of deleting older claims;
+14. reconcile independent-source agreement/disagreement with append-only verification audit events;
+15. group sibling brands from the same publisher so they do not falsely count as independent corroboration;
+16. evaluate conservative VERIFIED -> TRUSTED promotion rules with append-only trust audit events;
+17. keep live automatic trust promotion disabled by default behind `TRUST_PROMOTION_ENABLED=false`;
+18. answer suitable factual questions from structured claim state first while refusing to present conflicted or superseded values as current facts;
+19. monitor only explicitly configured, allow-listed feeds behind `SOURCE_MONITORING_ENABLED=false` by default;
+20. discover a bounded number of allow-listed RSS/Atom item URLs without following them;
+21. persist discoveries idempotently as pending work with non-secret operational metadata;
+22. pause automatic work when required cloud-capacity information is missing, low, or exhausted instead of deleting evidence or reducing source quality;
+23. require a separate `SOURCE_AUTO_INGEST_ENABLED=false` gate before queued URLs can reach the trusted ingestion pipeline;
+24. revalidate every queued URL immediately before ingestion; and
+25. provide read-only trust-readiness and monitoring-status reports.
 
-The trusted source registry currently includes RBI, SEBI, NSE, MoSPI, World Bank, IMF, DD News, and Akashvani News. DD News and Akashvani are assigned the same `prasar_bharati` independence group so they cannot falsely satisfy an independent-corroboration requirement by themselves. Automated continuous crawling is intentionally not enabled yet.
+The trusted source registry currently includes RBI, SEBI, NSE, MoSPI, World Bank, IMF, DD News, and Akashvani News. DD News and Akashvani are assigned the same `prasar_bharati` independence group so they cannot falsely satisfy an independent-corroboration requirement by themselves.
+
+Phase 5 does **not** enable unrestricted crawling, a scheduled live cloud monitor, automatic trust promotion, or autonomous financial actions.
 
 ## Cloud-first architecture
 
 - **GitHub Private** — source code and version control
-- **GitHub Codespaces** — development compute so the project does not consume your PC disk
+- **GitHub Codespaces** — development compute so the project does not consume the local PC disk
 - **FastAPI** — API layer
-- **Supabase PostgreSQL** — provenance, structured claims, entity attribution, verification events, supersession history, and trust events
+- **Supabase PostgreSQL** — provenance, structured claims, attribution, verification/trust audits, and monitoring metadata
 - **Qdrant Cloud** — vector retrieval plus server-side embeddings
 - **Backblaze B2** — private raw documents/evidence through its S3-compatible API
-- **GitHub Actions** — automatic cloud tests on `main`, all `phase-*` branches, and pull requests to `main`
+- **GitHub Actions** — automatic cloud tests on `main`, `phase-*` branches, and pull requests to `main`
 
 Docker is not required for the recommended setup.
 
 ## Local PC storage policy
 
-The recommended workflow does not install PostgreSQL, Qdrant, MinIO, Docker images, or embedding models on your PC.
+The recommended workflow does not install PostgreSQL, Qdrant, MinIO, Docker images, or embedding models on the PC.
 
-You may keep the Git clone locally because it is very small, or delete it after opening the project in Codespaces. Do not store downloaded research documents or databases in the repository.
-
-See `docs/DATA_AND_STORAGE_POLICY.md` for the authoritative storage policy. Knowledge quality, provenance, history, evaluations, or source coverage must not be silently reduced to save disk space.
+Do not store downloaded research documents, databases, embeddings, model weights, or large temporary files in the repository. See `docs/DATA_AND_STORAGE_POLICY.md` for the authoritative policy. Knowledge quality, provenance, history, evaluations, or source coverage must never be silently reduced to save disk space.
 
 ## Cloud services
 
-### 1. Supabase
+### Supabase PostgreSQL
 
 Use a hosted PostgreSQL connection string in `DATABASE_URL`.
 
-The structured layer uses separate tables so new audit capabilities do not require unsafe in-place changes to the existing `claims` table:
+Important tables include:
 
 - `documents` — source provenance and raw-object references;
 - `claims` — structured claim facts and current state;
-- `claim_entity_attributions` — why a canonical subject was assigned, including source default, explicit matched aliases, ambiguity candidates, and the exact local evidence window used;
+- `claim_entity_attributions` — auditable canonical-subject attribution;
 - `claim_supersessions` — non-destructive source-local version history;
-- `claim_verification_events` — append-only verification/conflict transitions; and
-- `claim_trust_events` — append-only VERIFIED -> TRUSTED transitions and corroborating source IDs.
+- `claim_verification_events` — append-only verification/conflict transitions;
+- `claim_trust_events` — append-only VERIFIED -> TRUSTED transitions;
+- `source_monitor_states` — current non-secret monitor state;
+- `source_monitor_runs` — append-only monitor run history; and
+- `source_monitor_discoveries` — idempotent pending/processed feed discoveries.
 
-### 2. Qdrant Cloud
+### Qdrant Cloud
 
-Configure:
-
-- cluster URL -> `QDRANT_URL`
-- API key -> `QDRANT_API_KEY`
-
-The default embedding model is:
+Configure `QDRANT_URL` and `QDRANT_API_KEY`. The default embedding model is:
 
 `sentence-transformers/all-MiniLM-L6-v2`
 
 Embeddings are created in Qdrant Cloud instead of being downloaded to the developer machine.
 
-### 3. Backblaze B2
+### Backblaze B2
 
 Use a private bucket with a bucket-scoped S3-compatible application key and configure:
 
@@ -108,13 +109,11 @@ pytest -q
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Normal unit/integration tests run automatically in GitHub Actions after pushed changes, so routine development does not require manually copying test commands between ChatGPT and Terminal 2.
+Routine tests run automatically in GitHub Actions after pushed changes.
 
 ## Trusted ingestion and claim lifecycle
 
 New internet material is never automatically treated as truth.
-
-The current lifecycle is deliberately conservative:
 
 ```text
 allow-listed source document
@@ -136,49 +135,78 @@ verified
 trusted
 ```
 
-A disagreement in the same comparable temporal scope becomes `conflicted`. A later dated version from the same source may mark an older version `superseded`, while preserving the older row and an audit link.
+A disagreement in the same comparable temporal scope becomes `conflicted`. A later dated version from the same source may mark an older version `superseded`, while preserving the older row and audit history.
 
-`TRUSTED` is deliberately stronger than ordinary verification. The policy requires a VERIFIED, dated, direct authority-A primary claim, auditable entity attribution, no active independent conflict, and at least one independent authority-A/B corroborating publisher group with the same value and temporal scope.
-
-Live automatic trust promotion remains disabled by default:
+`TRUSTED` is deliberately stronger than ordinary verification. Live automatic promotion remains disabled by default:
 
 ```text
 TRUST_PROMOTION_ENABLED=false
 ```
 
-The code path is fully tested in isolation, but the switch must remain off until real dated primary + independent evidence has passed live validation.
+The switch must remain off until real dated primary + independent evidence has passed live validation.
 
 ## Source independence
 
-Different websites or brands owned by the same publisher are not automatically independent.
-
-For example, DD News and Akashvani News are both grouped under `prasar_bharati`. Two agreeing claims from those sibling brands can still be useful evidence, but they count as one publisher-level group for verification/trust policy.
+Different websites or brands owned by the same publisher are not automatically independent. DD News and Akashvani News, for example, share the `prasar_bharati` publisher-level independence group.
 
 ## Entity attribution safety
 
-A source document and the subject of a claim are not assumed to be the same thing.
+A source document and the subject of a claim are not assumed to be the same thing. An IMF or news document can explicitly discuss an RBI policy rate; the system assigns the canonical subject only when local evidence supports that attribution. Unsafe cross-entity claims can be withheld from structured persistence while preserving the raw evidence.
 
-For example, an IMF or news document can explicitly discuss an RBI policy rate. The system can assign that claim to `Reserve Bank of India` only when the local evidence explicitly identifies that subject. Unsafe source-default cross-entity claims can be withheld from structured persistence while the raw evidence remains preserved.
-
-The attribution decision is auditable. Extracted claims can carry:
-
-- attribution basis (`explicit_local_alias`, `source_default`, or `ambiguous_local_entities_defaulted`);
-- source/default entity;
-- matched aliases;
-- ambiguity candidates; and
-- the exact normalized local text window used for the decision.
-
-That metadata is persisted in `claim_entity_attributions` and is also surfaced in structured QA evidence.
+Attribution metadata includes basis, source/default entity, matched aliases, ambiguity candidates, and the normalized local evidence window used for the decision.
 
 ## Temporal safety
 
-The system does not use retrieval time as an effective or publication date.
+Retrieval time is never used as an invented effective/publication date. Dates are attached only when explicit local text or a conservative source-specific adapter supports them. Undated claims cannot automatically participate in temporal cross-source verification/trust.
 
-Publication/effective dates are attached only when explicit local text or a conservative source-specific adapter supports them. If a reliable date is absent, the claim remains undated and cannot automatically participate in temporal cross-source verification/trust.
+This is why the original stored RBI homepage rate claims remain `candidate`: the page exposes the current rate table but does not reliably tie those values to an explicit effective/publication date.
 
-This is why the original stored RBI homepage rate claims remain `candidate`: the page exposes the current rate table but does not provide a reliable explicit effective/publication date tied to those policy-rate values.
+## Phase 5 source monitoring
 
-Phase 4 added source-specific publication-date adapters for RBI press-release style pages, DD News article timestamps, and Akashvani News article timestamps. RSS/Atom/XML feed extraction preserves each feed item's own publication date and text without automatically following embedded links.
+Phase 5 adds bounded monitoring without turning the project into an unrestricted crawler. The detailed design is in `docs/PHASE5_SOURCE_MONITORING.md`.
+
+The two runtime gates are independent and both default to false:
+
+```text
+SOURCE_MONITORING_ENABLED=false
+SOURCE_AUTO_INGEST_ENABLED=false
+```
+
+The first gate allows only a registered monitor feed to be observed. The second is additionally required before a pending discovery may be passed to the existing trusted ingestion pipeline. Enabling monitoring therefore does not silently enable item-link ingestion.
+
+The current RBI monitor is explicitly configured for the RBI press-release RSS feed, with a minimum one-hour cadence and bounded per-run discovery count. Failure scheduling uses exponential backoff capped at 24 hours.
+
+### Capacity safeguards
+
+Automatic monitoring/processing requires capacity signals for Supabase, Backblaze B2, and Qdrant. Provider quotas are never guessed. If usage or an operator-approved ceiling is missing, capacity is `UNKNOWN` and automatic work pauses.
+
+Optional ceilings remain unset by default:
+
+```text
+MONITOR_SUPABASE_MAX_MB=
+MONITOR_B2_MAX_MB=
+MONITOR_QDRANT_MAX_POINTS=
+MONITOR_CAPACITY_LOW_WATERMARK_PERCENT=10
+```
+
+Low/exhausted capacity pauses work. It does not silently delete evidence, truncate history, or reduce source quality.
+
+### Discovery queue and processing
+
+Feed discovery validates HTTPS and the trusted-source host allow-list, deduplicates feed URLs, and stores bounded discoveries in `source_monitor_discoveries`. Discovery itself does not download item links.
+
+If auto-ingestion is explicitly enabled later, the processor:
+
+1. requires monitoring + auto-ingestion gates;
+2. requires the monitor to be enabled and cloud capacity safe;
+3. selects only a bounded pending batch for that monitor/source;
+4. revalidates every queued URL immediately before ingestion;
+5. passes eligible URLs through the existing trusted ingestion pipeline; and
+6. stores only symbolic operational errors rather than raw exception text or secrets.
+
+A policy-invalid queued URL becomes `rejected`; transient/operational failures stay `pending` for later retry. Successfully indexed items become `ingested`; already-known documents become `duplicate`.
+
+No scheduled live cloud job has been enabled in this milestone.
 
 ## Grounded question answering
 
@@ -201,8 +229,7 @@ For suitable metric questions, the structured layer is checked before vector ret
 - latest comparable temporal scope is preferred over older dated history;
 - `candidate` values may be returned with lower confidence and an explicit candidate basis;
 - `conflicted` claims are surfaced as a conflict instead of selecting one value;
-- `superseded` or `rejected` values are not presented as current structured facts;
-- structured evidence includes entity-attribution provenance when available; and
+- `superseded` or `rejected` values are not presented as current structured facts; and
 - questions that do not map safely to structured claims fall back to extractive evidence retrieval from Qdrant.
 
 Every response remains grounded in stored evidence and includes a non-advice warning.
@@ -241,18 +268,17 @@ Only HTTPS URLs whose host is explicitly allow-listed for the selected source ar
 POST /ask
 ```
 
-## Validation utilities
-
-The repository includes safe validation/reporting scripts:
+## Validation and reporting utilities
 
 ```bash
 python scripts/rbi_smoke_test.py
 python scripts/validate_ddnews_repo_rate.py
 python scripts/validate_rbi_june_repo_rate.py
 python scripts/trust_readiness_report.py
+python scripts/monitoring_status_report.py
 ```
 
-The trust-readiness report is read-only: it evaluates current persisted claims under the Phase 4 policy without changing claim states or creating trust audit rows.
+`trust_readiness_report.py` is read-only and evaluates persisted claim readiness without changing claim states or audit rows. `monitoring_status_report.py` is also read-only and reports the two Phase 5 gates plus aggregate persisted monitor/run/discovery state without network access or mutations.
 
 If an official site returns a CAPTCHA/challenge page or silently redirects a document URL to an unrelated homepage, ingestion rejects that response instead of treating it as trusted evidence.
 
@@ -269,36 +295,36 @@ Run without `--apply` first to preview what would be removed.
 
 ## Validation status
 
-Phase 1 real-cloud validation established consistency across Supabase PostgreSQL, Backblaze B2, and Qdrant Cloud.
+Phase 1 established real-cloud consistency across Supabase PostgreSQL, Backblaze B2, and Qdrant Cloud.
 
 Phase 2 added structured claims, temporal metadata, supersession, verification/conflict state transitions, append-only audit history, ingestion reconciliation, and claim-aware QA. The real RBI homepage backfill is idempotent and contains 11 candidate structured rate claims.
 
 Phase 3 added conservative canonical entity attribution and persisted attribution provenance.
 
-Phase 4 now includes:
+Phase 4 added conservative trust policy, publisher-level independence, source-specific dated metadata, DD News/Akashvani support, bounded transient retries, RSS/Atom extraction, peer-group trust reconciliation, a read-only trust-readiness report, and attribution-aware structured QA evidence. The real DD News June 5, 2026 corroborating article was accepted. Direct retrieval of the dated RBI June 2026 primary page was blocked by RBI anti-bot protection and correctly rejected without bypassing it or promoting trust.
 
-- conservative trust policy and persistent trust audit events;
-- publisher-level independence groups;
-- safe structured-claim eligibility filtering;
-- DD News and Akashvani secondary-source support;
-- source-specific dated metadata adapters;
-- bounded transient-download retries;
-- RSS/Atom/XML extraction without following embedded links;
-- a disabled-by-default ingestion trust-promotion gate;
-- peer-group trust reconciliation so a primary can be revisited when corroboration arrives later;
-- a read-only trust-readiness report; and
-- attribution-aware structured QA evidence.
+Phase 5 currently adds:
 
-Latest Phase 4 automated validation: `151 passed, 2 warnings`. The warnings are existing Starlette/anyio deprecations and are non-blocking.
+- bounded source-specific monitoring definitions;
+- minimum cadence and failure backoff;
+- fail-closed Supabase/B2/Qdrant capacity policy with no guessed quotas;
+- append-only monitor run observability plus current monitor state;
+- bounded allow-listed RSS/Atom discovery;
+- an idempotent persistent discovery queue;
+- a global monitoring gate and separate automatic-ingestion gate, both disabled by default;
+- immediate URL revalidation before queued ingestion;
+- bounded processing through the existing trusted ingestion pipeline;
+- symbolic secret-free failure recording; and
+- a read-only monitoring status report.
 
-The real DD News June 5, 2026 corroborating article was accepted into the live cloud pipeline. Direct retrieval of the dated RBI June 2026 primary page was blocked by RBI's anti-bot challenge, and the system correctly rejected that response instead of bypassing the protection or promoting trust.
+Latest Phase 5 automated validation: `204 passed, 2 warnings`. The two warnings are the existing Starlette/httpx and AnyIO deprecations and are non-blocking.
 
 ## Current boundary
 
-The trust mechanism is implemented and tested, but live `TRUSTED` promotion is intentionally not enabled because the dated primary RBI evidence has not yet been safely accepted into the live pipeline. The project must not weaken anti-bot protections, invent dates, or treat secondary corroboration as a substitute for direct primary evidence.
+The Phase 5 monitoring and queued-processing architecture is implemented and tested, but live scheduled monitoring has **not** been enabled. `SOURCE_MONITORING_ENABLED=false`, `SOURCE_AUTO_INGEST_ENABLED=false`, and `TRUST_PROMOTION_ENABLED=false` remain the safe defaults.
 
-Automated continuous crawling and autonomous financial actions remain outside this milestone.
+Before live scheduling, the project still needs measured cloud-usage inputs, deliberately chosen safe ceilings, and a controlled source-monitor probe. It must not guess quotas, weaken source/anti-bot protections, invent dates, delete trusted history to make space, or perform autonomous financial actions.
 
 ## Next milestone
 
-`scheduled source monitoring -> pause-on-capacity safeguards -> ingestion observability -> conservative review/approval workflow for enabling live trust promotion after dated primary evidence is accepted`
+`measured cloud-capacity collectors -> controlled read-only/live monitor probe -> scheduler deployment only after explicit safe ceilings are configured -> continued conservative evidence review`
