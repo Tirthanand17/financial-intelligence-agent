@@ -168,3 +168,39 @@ def reconcile_trust_for_claim(
         session.flush()
 
     return [event]
+
+
+def reconcile_trust_for_peer_group(
+    session: Session,
+    target_record: ClaimRecord,
+    *,
+    commit: bool = True,
+) -> list[ClaimTrustEventRecord]:
+    """Reconcile trust for every active claim in one comparable peer group.
+
+    This helper matters when a corroborating secondary claim arrives after the
+    primary claim. Verification can promote both rows during the secondary-source
+    ingestion, so trust evaluation must revisit the already-stored authority-A
+    primary row rather than evaluating only the newly ingested secondary row.
+
+    The operation is idempotent because each per-claim reconciliation creates an
+    event only for a genuine VERIFIED -> TRUSTED transition.
+    """
+    records = _comparable_records(session, target_record)
+    events: list[ClaimTrustEventRecord] = []
+
+    for record in records:
+        events.extend(
+            reconcile_trust_for_claim(
+                session,
+                record,
+                commit=False,
+            )
+        )
+
+    if commit:
+        session.commit()
+        for event in events:
+            session.refresh(event)
+
+    return events
