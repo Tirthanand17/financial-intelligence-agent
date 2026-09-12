@@ -38,19 +38,25 @@ def _mark_attempt(
     record.last_error_code = error_code
 
 
+def _maybe_commit(session: Session, commit: bool) -> None:
+    if commit:
+        session.commit()
+
+
 def _process_record(
     session: Session,
     record: SourceMonitorDiscoveryRecord,
     *,
     now: datetime,
     ingest: IngestUrl,
+    commit: bool,
 ) -> DiscoveryProcessingResult:
     try:
         validate_source_url(record.source_id, record.url)
     except ValueError:
         record.status = "rejected"
         _mark_attempt(record, now=now, error_code="source_policy_rejection")
-        session.commit()
+        _maybe_commit(session, commit)
         return DiscoveryProcessingResult(
             reason="processing_completed",
             selected_count=1,
@@ -61,7 +67,7 @@ def _process_record(
         result = ingest(record.source_id, record.url)
     except ConnectionError:
         _mark_attempt(record, now=now, error_code="transient_network_error")
-        session.commit()
+        _maybe_commit(session, commit)
         return DiscoveryProcessingResult(
             reason="processing_completed",
             selected_count=1,
@@ -69,7 +75,7 @@ def _process_record(
         )
     except httpx.HTTPError:
         _mark_attempt(record, now=now, error_code="http_error")
-        session.commit()
+        _maybe_commit(session, commit)
         return DiscoveryProcessingResult(
             reason="processing_completed",
             selected_count=1,
@@ -77,7 +83,7 @@ def _process_record(
         )
     except ValueError:
         _mark_attempt(record, now=now, error_code="ingestion_validation_error")
-        session.commit()
+        _maybe_commit(session, commit)
         return DiscoveryProcessingResult(
             reason="processing_completed",
             selected_count=1,
@@ -85,7 +91,7 @@ def _process_record(
         )
     except RuntimeError:
         _mark_attempt(record, now=now, error_code="ingestion_runtime_error")
-        session.commit()
+        _maybe_commit(session, commit)
         return DiscoveryProcessingResult(
             reason="processing_completed",
             selected_count=1,
@@ -96,7 +102,7 @@ def _process_record(
     document_id = result.get("document_id")
     if status not in {"indexed", "already_indexed"} or not isinstance(document_id, str):
         _mark_attempt(record, now=now, error_code="unexpected_ingestion_result")
-        session.commit()
+        _maybe_commit(session, commit)
         return DiscoveryProcessingResult(
             reason="processing_completed",
             selected_count=1,
@@ -106,7 +112,7 @@ def _process_record(
     record.document_id = document_id
     record.status = "ingested" if status == "indexed" else "duplicate"
     _mark_attempt(record, now=now, error_code=None)
-    session.commit()
+    _maybe_commit(session, commit)
     return DiscoveryProcessingResult(
         reason="processing_completed",
         selected_count=1,
@@ -176,7 +182,7 @@ def process_specific_pending_discovery(
     if record is None:
         return DiscoveryProcessingResult(reason="pending_discovery_not_found")
 
-    return _process_record(session, record, now=now, ingest=ingest)
+    return _process_record(session, record, now=now, ingest=ingest, commit=True)
 
 
 def process_pending_discoveries(
@@ -199,6 +205,7 @@ def process_pending_discoveries(
 
     Operational failures persist only symbolic error codes. Failed items remain
     pending for a later retry; policy-rejected URLs are terminally marked rejected.
+    The original batch path preserves its one-commit queue-transition semantics.
     """
     blocked = _gate_processing(
         monitor,
@@ -235,12 +242,19 @@ def process_pending_discoveries(
     rejected_count = 0
 
     for record in records:
-        result = _process_record(session, record, now=now, ingest=ingest)
+        result = _process_record(
+            session,
+            record,
+            now=now,
+            ingest=ingest,
+            commit=False,
+        )
         ingested_count += result.ingested_count
         duplicate_count += result.duplicate_count
         failed_count += result.failed_count
         rejected_count += result.rejected_count
 
+    session.commit()
     return DiscoveryProcessingResult(
         reason="processing_completed",
         selected_count=len(records),
