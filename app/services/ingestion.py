@@ -152,12 +152,30 @@ def _backfill_existing_document_claims(
     )
 
 
-def ingest_url(source_id: str, url: str) -> dict[str, object]:
+def ingest_url(
+    source_id: str,
+    url: str,
+    *,
+    expected_sha256: str | None = None,
+) -> dict[str, object]:
+    """Download and persist one trusted source URL.
+
+    ``expected_sha256`` is an optional Phase 7 content-stability guard. When a
+    caller has just preflighted a queued URL, it can require the persistence
+    download to match the exact preflighted bytes. The comparison happens before
+    any database, object-store, or vector-store writes. A mismatch fails closed.
+    """
     settings = get_settings()
     trust_promotion_enabled = bool(
         getattr(settings, "trust_promotion_enabled", False)
     )
     downloaded = download_trusted_document(source_id, url)
+
+    if expected_sha256 is not None and downloaded.sha256 != expected_sha256:
+        raise ValueError(
+            "Downloaded evidence changed after preflight; refusing to persist "
+            "content whose SHA-256 does not match the approved preflight bytes."
+        )
 
     with get_session() as session:
         existing = find_document_by_sha(session, downloaded.sha256)
