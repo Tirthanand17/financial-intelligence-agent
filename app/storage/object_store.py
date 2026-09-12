@@ -1,29 +1,37 @@
-from io import BytesIO
+from functools import lru_cache
 
-from minio import Minio
+import boto3
+from botocore.client import BaseClient
+from botocore.exceptions import ClientError
 
 from app.core.config import get_settings
 
 
-def get_minio_client() -> Minio:
+@lru_cache
+def get_s3_client() -> BaseClient:
     settings = get_settings()
-    return Minio(
-        settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        secure=settings.minio_secure,
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint_url,
+        aws_access_key_id=settings.s3_access_key_id,
+        aws_secret_access_key=settings.s3_secret_access_key,
+        region_name=settings.s3_region,
     )
 
 
-def ensure_bucket(client: Minio, bucket: str) -> None:
-    if not client.bucket_exists(bucket):
-        client.make_bucket(bucket)
+def ensure_bucket(client: BaseClient, bucket: str) -> None:
+    try:
+        client.head_bucket(Bucket=bucket)
+    except ClientError as exc:
+        raise RuntimeError(
+            f"Object-storage bucket '{bucket}' is unavailable. Create it first and check the S3 credentials."
+        ) from exc
 
 
 def put_raw_document(*, source_id: str, sha256: str, content: bytes, content_type: str) -> str:
     settings = get_settings()
-    client = get_minio_client()
-    ensure_bucket(client, settings.minio_bucket)
+    client = get_s3_client()
+    ensure_bucket(client, settings.s3_bucket)
 
     extension = {
         "application/pdf": "pdf",
@@ -33,10 +41,9 @@ def put_raw_document(*, source_id: str, sha256: str, content: bytes, content_typ
 
     object_key = f"raw/{source_id}/{sha256}.{extension}"
     client.put_object(
-        settings.minio_bucket,
-        object_key,
-        BytesIO(content),
-        length=len(content),
-        content_type=content_type,
+        Bucket=settings.s3_bucket,
+        Key=object_key,
+        Body=content,
+        ContentType=content_type,
     )
     return object_key
