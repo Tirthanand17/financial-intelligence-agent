@@ -45,6 +45,20 @@ MONITOR_QDRANT_MAX_POINTS=
 MONITOR_CAPACITY_LOW_WATERMARK_PERCENT=10
 ```
 
+Phase 5 can measure current usage read-only without assuming plan quotas:
+
+- PostgreSQL: `pg_database_size(current_database())`;
+- Backblaze B2: sum S3 object `Size` metadata without downloading object bodies; and
+- Qdrant: collection `points_count` metadata.
+
+Any measurement failure becomes `UNKNOWN`, which pauses automatic work. The measurement report is explicit and read-only:
+
+```bash
+python scripts/cloud_capacity_report.py
+```
+
+The script prints measured aggregate usage and policy states only. It does not print credentials, raw request headers, or provider connection secrets, and it performs no writes.
+
 ## Discovery queue
 
 Feed items are persisted in `source_monitor_discoveries` as idempotent queue records. Identity is based on monitor + URL, so a later title/date correction updates the existing item rather than creating duplicate work.
@@ -75,16 +89,16 @@ Operational failures retain the discovery as `pending` and store only symbolic e
 
 `source_monitor_states` stores current non-secret operational state. `source_monitor_runs` is append-only run history. `source_monitor_discoveries` is the idempotent discovery queue.
 
-The read-only report:
+The persisted-state report is read-only:
 
 ```bash
 python scripts/monitoring_status_report.py
 ```
 
-shows the two monitoring gates and aggregate monitor/run/discovery counts. It performs no network calls and changes no monitor, ingestion, claim, or trust state.
+It shows the two monitoring gates and aggregate monitor/run/discovery counts without network access or mutations.
 
 ## Deployment boundary
 
-The Phase 5 code path is implemented and tested, but no scheduled live cloud monitor is enabled by this milestone. Both runtime switches remain `false` in `.env.example`. Before any scheduled deployment, cloud usage must be measured, explicit safe ceilings configured, and a controlled live probe reviewed.
+The Phase 5 code path is implemented and tested, but no scheduled live cloud monitor is enabled by this milestone. Both runtime switches remain `false` in `.env.example`. Before any scheduled deployment, current cloud usage should be measured, explicit safe ceilings deliberately configured, and a controlled live source probe reviewed.
 
 Automatic `TRUSTED` promotion remains disabled independently until the Phase 4 requirement for safely accepted dated primary evidence plus independent corroboration is satisfied.
