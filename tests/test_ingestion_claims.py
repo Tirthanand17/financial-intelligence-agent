@@ -78,6 +78,13 @@ def _configure_isolated_ingestion(monkeypatch):
         "download_trusted_document",
         lambda source_id, url: _downloaded(),
     )
+    # These tests intentionally create synthetic source IDs to exercise claim
+    # lifecycle behavior. Production registry policy is tested separately.
+    monkeypatch.setattr(
+        ingestion_service,
+        "validate_source_url",
+        lambda source_id, url: _source(source_id=source_id, url=url),
+    )
     monkeypatch.setattr(
         ingestion_service,
         "put_raw_document",
