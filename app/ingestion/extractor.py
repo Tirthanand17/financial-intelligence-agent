@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from io import BytesIO
 
-import fitz
+import pymupdf
 from bs4 import BeautifulSoup
 
 
@@ -23,7 +23,7 @@ def extract_document(content: bytes, content_type: str) -> ExtractedDocument:
 
 
 def _extract_pdf(content: bytes) -> ExtractedDocument:
-    document = fitz.open(stream=BytesIO(content), filetype="pdf")
+    document = pymupdf.open(stream=BytesIO(content), filetype="pdf")
     metadata = document.metadata or {}
     title = (metadata.get("title") or "").strip() or None
     pages: list[str] = []
