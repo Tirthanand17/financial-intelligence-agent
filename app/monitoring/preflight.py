@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from app.claims.eligibility import filter_eligible_claims
@@ -28,6 +28,7 @@ class DiscoveryPreflightResult:
     chunk_count: int
     publication_date: date | None
     eligible_claim_count: int
+    downloaded: DownloadedDocument = field(repr=False, compare=False)
 
 
 def preflight_discovered_url(
@@ -46,6 +47,10 @@ def preflight_discovered_url(
     then the normal trusted downloader, extractor, challenge-page quality gate,
     chunker, temporal metadata adapter, and structured-claim eligibility filter
     are run.
+
+    The accepted ``DownloadedDocument`` is retained privately on the result so a
+    controlled caller can persist the exact already-validated bytes without a
+    second public download. The raw bytes are excluded from the dataclass repr.
 
     No object-store write, vector upsert, document row, claim row, monitor audit
     row, discovery mutation, or trust transition occurs here.
@@ -91,4 +96,5 @@ def preflight_discovered_url(
         chunk_count=len(chunks),
         publication_date=publication_date,
         eligible_claim_count=len(eligible_claims),
+        downloaded=downloaded,
     )
