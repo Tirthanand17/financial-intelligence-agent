@@ -2,7 +2,9 @@
 
 Private, continuously learning financial and economic intelligence system.
 
-## Current Phase 5 milestone
+## Current roadmap status
+
+Phases 1–17 are complete in the currently defined roadmap. Phase 17 added final production-hardening checks, live cross-store integrity validation, four-source retry/recovery replay, a bounded read-only stability soak, and an explicit storage-preservation rule. All three runtime gates remain disabled by default pending any separately approved operational activation.
 
 The project uses a cloud-first, source-grounded pipeline designed to keep local PC storage very small while preserving evidence, provenance, version history, claim state, entity attribution, source independence, trust-promotion auditability, and monitoring history.
 
@@ -36,7 +38,7 @@ It can:
 
 The trusted source registry currently includes RBI, SEBI, NSE, MoSPI, World Bank, IMF, DD News, and Akashvani News. DD News and Akashvani are assigned the same `prasar_bharati` independence group so they cannot falsely satisfy an independent-corroboration requirement by themselves.
 
-Phase 5 does **not** enable unrestricted crawling, a scheduled live cloud monitor, automatic trust promotion, or autonomous financial actions.
+The completed roadmap does **not** authorize unrestricted crawling, autonomous financial actions, or unconditional trust promotion. Runtime activation remains separately gated and fail-closed.
 
 ## Cloud-first architecture
 
@@ -295,36 +297,22 @@ Run without `--apply` first to preview what would be removed.
 
 ## Validation status
 
-Phase 1 established real-cloud consistency across Supabase PostgreSQL, Backblaze B2, and Qdrant Cloud.
+Phases 1–4 established the cloud ingestion, structured-claim, provenance, entity-attribution, verification, source-independence, and conservative trust architecture.
 
-Phase 2 added structured claims, temporal metadata, supersession, verification/conflict state transitions, append-only audit history, ingestion reconciliation, and claim-aware QA. The real RBI homepage backfill is idempotent and contains 11 candidate structured rate claims.
+Phases 5–14 added bounded source monitoring, measured-capacity safeguards, idempotent discovery persistence, exact-byte controlled ingestion, batch reconciliation, cadence control, retry/backoff, auto-ingestion gate canaries, and integrated one-shot monitor-to-ingestion validation.
 
-Phase 3 added conservative canonical entity attribution and persisted attribution provenance.
+Phase 15 expanded monitored India Authority-A coverage to RBI, SEBI, NSE, and MoSPI with source-specific fail-closed adapters and controlled exact-byte canaries.
 
-Phase 4 added conservative trust policy, publisher-level independence, source-specific dated metadata, DD News/Akashvani support, bounded transient retries, RSS/Atom extraction, peer-group trust reconciliation, a read-only trust-readiness report, and attribution-aware structured QA evidence. The real DD News June 5, 2026 corroborating article was accepted. Direct retrieval of the dated RBI June 2026 primary page was blocked by RBI anti-bot protection and correctly rejected without bypassing it or promoting trust.
+Phase 16 added a narrow claim-quality floor and prevented legacy parser/page-metadata noise from participating in verification or trust decisions while preserving all historical evidence.
 
-Phase 5 currently adds:
-
-- bounded source-specific monitoring definitions;
-- minimum cadence and failure backoff;
-- fail-closed Supabase/B2/Qdrant capacity policy with no guessed quotas;
-- append-only monitor run observability plus current monitor state;
-- bounded allow-listed RSS/Atom discovery;
-- an idempotent persistent discovery queue;
-- a global monitoring gate and separate automatic-ingestion gate, both disabled by default;
-- immediate URL revalidation before queued ingestion;
-- bounded processing through the existing trusted ingestion pipeline;
-- symbolic secret-free failure recording; and
-- a read-only monitoring status report.
-
-Latest Phase 5 automated validation: `204 passed, 2 warnings`. The two warnings are the existing Starlette/httpx and AnyIO deprecations and are non-blocking.
+Phase 17 added the final production-readiness contract and bounded stability soak. Latest validation: `342 passed, 2 warnings`; the two warnings are existing Starlette/httpx and AnyIO deprecations. Live checks confirmed 11 evidence documents with valid hashes, 31 expected/actual Qdrant points, zero orphan claims, zero high-state quality failures, zero trust events, four ready monitors, and safe measured capacity under the approved ceilings.
 
 ## Current boundary
 
-The Phase 5 monitoring and queued-processing architecture is implemented and tested, but live scheduled monitoring has **not** been enabled. `SOURCE_MONITORING_ENABLED=false`, `SOURCE_AUTO_INGEST_ENABLED=false`, and `TRUST_PROMOTION_ENABLED=false` remain the safe defaults.
+`SOURCE_MONITORING_ENABLED=false`, `SOURCE_AUTO_INGEST_ENABLED=false`, and `TRUST_PROMOTION_ENABLED=false` remain the safe defaults. Phase 17 proves readiness; it does not silently switch the system into unattended production operation. Any later operational activation must preserve the same source allow-lists, exact-byte evidence rules, retry/capacity limits, and kill switches.
 
-Before live scheduling, the project still needs measured cloud-usage inputs, deliberately chosen safe ceilings, and a controlled source-monitor probe. It must not guess quotas, weaken source/anti-bot protections, invent dates, delete trusted history to make space, or perform autonomous financial actions.
+Storage is non-compromising: if Supabase, Backblaze B2, or Qdrant reaches the configured low-watermark, or if capacity becomes unknown, new ingestion pauses. Evidence, provenance, source coverage, validation, or history must not be deleted or weakened to make room.
 
-## Next milestone
+## Roadmap closeout
 
-`measured cloud-capacity collectors -> controlled read-only/live monitor probe -> scheduler deployment only after explicit safe ceilings are configured -> continued conservative evidence review`
+The currently defined Phase 1–17 implementation roadmap is complete. Future work should be treated as a separately approved operational/deployment milestone rather than silently extending or bypassing these safety gates.
