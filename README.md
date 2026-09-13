@@ -163,7 +163,7 @@ Retrieval time is never used as an invented effective/publication date. Dates ar
 
 This is why the original stored RBI homepage rate claims remain `candidate`: the page exposes the current rate table but does not reliably tie those values to an explicit effective/publication date.
 
-## Phase 5 source monitoring
+## Historical Phase 5 source-monitoring design
 
 Phase 5 adds bounded monitoring without turning the project into an unrestricted crawler. The detailed design is in `docs/PHASE5_SOURCE_MONITORING.md`.
 
@@ -176,7 +176,7 @@ SOURCE_AUTO_INGEST_ENABLED=false
 
 The first gate allows only a registered monitor feed to be observed. The second is additionally required before a pending discovery may be passed to the existing trusted ingestion pipeline. Enabling monitoring therefore does not silently enable item-link ingestion.
 
-The current RBI monitor is explicitly configured for the RBI press-release RSS feed, with a minimum one-hour cadence and bounded per-run discovery count. Failure scheduling uses exponential backoff capped at 24 hours.
+The original Phase 5 RBI monitor was explicitly configured for the RBI press-release RSS feed, with a minimum one-hour cadence and bounded per-run discovery count. Later phases expanded the registered monitor set to RBI, SEBI, NSE, and MoSPI. Failure scheduling uses exponential backoff capped at 24 hours.
 
 ### Capacity safeguards
 
@@ -280,7 +280,7 @@ python scripts/trust_readiness_report.py
 python scripts/monitoring_status_report.py
 ```
 
-`trust_readiness_report.py` is read-only and evaluates persisted claim readiness without changing claim states or audit rows. `monitoring_status_report.py` is also read-only and reports the two Phase 5 gates plus aggregate persisted monitor/run/discovery state without network access or mutations.
+`trust_readiness_report.py` is read-only and evaluates persisted claim readiness without changing claim states or audit rows. `monitoring_status_report.py` is also read-only and reports monitoring/auto-ingestion gate state plus aggregate persisted monitor/run/discovery state without network access or mutations.
 
 If an official site returns a CAPTCHA/challenge page or silently redirects a document URL to an unrelated homepage, ingestion rejects that response instead of treating it as trusted evidence.
 
