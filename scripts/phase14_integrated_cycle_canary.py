@@ -11,7 +11,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.core.config import get_settings
-from app.ingestion.downloader import download_trusted_document
 from app.monitoring.auto_ingest_canary import assess_auto_ingest_gate_canary
 from app.monitoring.controlled import snapshot_monitoring_database
 from app.monitoring.cycle_plan import PendingRetryState, plan_recurring_cycle
@@ -27,7 +26,7 @@ from app.monitoring.processor import (
     process_specific_pending_discovery,
 )
 from app.monitoring.registry import get_monitor
-from app.monitoring.runner import probe_monitor_once
+from app.monitoring.runner import download_monitor_payload, probe_monitor_once
 from app.services.ingestion import ingest_downloaded_document
 from app.storage.database import (
     DocumentRecord,
@@ -181,7 +180,7 @@ def main() -> None:
         before_monitor_db = snapshot_monitoring_database(session)
         started_at = datetime.now(UTC)
         try:
-            downloaded_feed = download_trusted_document(monitor.source_id, monitor.url)
+            downloaded_feed = download_monitor_payload(monitor.source_id, monitor.url)
         except ConnectionError:
             session.rollback()
             print("FINAL: BLOCKED-DUE - feed download failed with transient_network_error.")
