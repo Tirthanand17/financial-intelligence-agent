@@ -27,3 +27,11 @@ def test_one_shot_requires_exact_confirmation_and_single_item_limit() -> None:
     assert '--processing-limit 1' in text
     assert '--allow-network' in text
     assert '--allow-write' in text
+
+
+def test_dispatch_inputs_are_not_interpolated_directly_into_shell_commands() -> None:
+    text = _workflow_text()
+    assert 'ONE_SHOT_CONFIRMATION: ${{ inputs.confirmation }}' in text
+    assert 'SELECTED_MONITOR_ID: ${{ inputs.monitor_id }}' in text
+    assert 'if [ "${{ inputs.confirmation }}"' not in text
+    assert '--monitor-id "${{ inputs.monitor_id }}"' not in text
