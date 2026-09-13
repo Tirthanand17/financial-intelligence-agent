@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from app.claims.eligibility import claim_quality_rejection_reason
 from app.claims.models import ClaimState, StructuredClaim
 from app.sources.registry import (
     AuthorityLevel,
@@ -60,14 +61,12 @@ def _source_group(source_id: str) -> str:
         return source_id
 
 
-def _has_auditable_entity_attribution(claim: StructuredClaim) -> bool:
-    """Return whether the claim's subject assignment is safe for trust policy.
+def _quality_ok(claim: StructuredClaim) -> bool:
+    return claim_quality_rejection_reason(claim.metric, claim.evidence_text) is None
 
-    Direct primary claims may use a source-default attribution. A secondary
-    source discussing another institution must have an explicit local alias for
-    that subject. Ambiguous/defaulted cross-entity attribution and older claims
-    with unspecified provenance are never enough for automatic trust promotion.
-    """
+
+def _has_auditable_entity_attribution(claim: StructuredClaim) -> bool:
+    """Return whether the claim's subject assignment is safe for trust policy."""
     source = _source_definition(claim)
     if source is None or claim.entity_source_default is None:
         return False
@@ -91,22 +90,10 @@ def assess_trust(
 ) -> TrustDecision:
     """Assess conservative automatic promotion from VERIFIED to TRUSTED.
 
-    Trust is intentionally stronger than two-source verification. Automatic
-    promotion requires all of the following:
-
-    - the target is already VERIFIED (TRUSTED is preserved);
-    - an explicit comparable temporal scope exists;
-    - the target comes directly from an authority-A source whose source identity
-      is the same canonical entity as the claim subject;
-    - the target has auditable entity-attribution provenance;
-    - no active comparable claim from another independent publisher/institution
-      group carries a different value; and
-    - at least one independent authority-A/B group corroborates the same value,
-      with auditable entity attribution. Multiple brands owned by one publisher
-      count as one corroborating group.
-
-    This function never treats extraction, retrieval score, source reputation,
-    or two sibling brands as sufficient for trust.
+    Trust is stronger than verification. Phase 16 also requires both the target
+    and every corroborating/conflicting item considered by this decision to pass
+    the narrow structured-claim quality floor. Historical quality-failed rows are
+    preserved, but they cannot create new TRUSTED knowledge.
     """
     if target.state is ClaimState.TRUSTED:
         return TrustDecision(
@@ -118,6 +105,12 @@ def assess_trust(
         return TrustDecision(
             state=target.state,
             reason="target_not_verified",
+        )
+
+    if not _quality_ok(target):
+        return TrustDecision(
+            state=ClaimState.VERIFIED,
+            reason="quality_gate_failed",
         )
 
     target_scope = _temporal_scope(target)
@@ -159,7 +152,8 @@ def assess_trust(
     comparable = [
         claim
         for claim in evidence
-        if _comparison_key(claim) == target_key
+        if _quality_ok(claim)
+        and _comparison_key(claim) == target_key
         and claim.state not in {ClaimState.REJECTED, ClaimState.SUPERSEDED}
     ]
 
