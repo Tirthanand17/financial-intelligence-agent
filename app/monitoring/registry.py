@@ -30,6 +30,14 @@ MONITORS: tuple[MonitorDefinition, ...] = (
         enabled=True,
         max_new_documents_per_run=10,
     ),
+    MonitorDefinition(
+        monitor_id="mospi-latest-releases-api",
+        source_id="mospi",
+        url="https://www.mospi.gov.in/api/latest-release/get-web-latest-release-list",
+        interval_minutes=60,
+        enabled=True,
+        max_new_documents_per_run=10,
+    ),
 )
 
 

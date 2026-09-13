@@ -63,10 +63,11 @@ def test_sebi_feed_parser_fails_closed_on_malformed_xml() -> None:
         discover_feed_items(b"<rss>", source_id="sebi", limit=10)
 
 
-def test_sebi_and_nse_registration_leaves_mospi_as_primary_gap() -> None:
+def test_sebi_nse_and_mospi_registration_closes_primary_india_gap() -> None:
     coverage = build_source_coverage(TRUSTED_SOURCES, MONITORS)
     by_id = {row.source_id: row for row in coverage}
 
     assert by_id["sebi"].monitor_ids == ("sebi-rss",)
     assert by_id["nse"].monitor_ids == ("nse-daily-buyback-rss",)
-    assert tuple(row.source_id for row in primary_india_monitoring_gaps(coverage)) == ("mospi",)
+    assert by_id["mospi"].monitor_ids == ("mospi-latest-releases-api",)
+    assert primary_india_monitoring_gaps(coverage) == ()

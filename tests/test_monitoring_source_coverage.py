@@ -13,7 +13,7 @@ def test_current_source_coverage_identifies_primary_india_gaps() -> None:
     assert by_id["sebi"].monitor_ids == ("sebi-rss",)
 
     gaps = primary_india_monitoring_gaps(coverage)
-    assert tuple(row.source_id for row in gaps) == ("mospi",)
+    assert tuple(row.source_id for row in gaps) == ()
 
 
 def test_coverage_keeps_secondary_sources_visible_without_promoting_them() -> None:

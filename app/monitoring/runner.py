@@ -6,6 +6,10 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.ingestion.downloader import download_trusted_document
+from app.sources.mospi import (
+    discover_mospi_latest_releases,
+    download_mospi_latest_releases,
+)
 from app.monitoring.discovery import discover_feed_items
 from app.monitoring.discovery_storage import record_discovered_items
 from app.monitoring.models import (
@@ -33,6 +37,12 @@ class FeedDownload(Protocol):
 
 
 DownloadFeed = Callable[[str, str], FeedDownload]
+
+
+def download_monitor_payload(source_id: str, url: str) -> FeedDownload:
+    if source_id == "mospi":
+        return download_mospi_latest_releases(source_id, url)
+    return download_trusted_document(source_id, url)
 
 
 def _record_and_result(
@@ -80,7 +90,7 @@ def probe_monitor_once(
     started_at: datetime,
     finished_at: datetime,
     source_monitoring_enabled: bool = False,
-    download_feed: DownloadFeed = download_trusted_document,
+    download_feed: DownloadFeed = download_monitor_payload,
     commit: bool = True,
 ) -> MonitorExecutionResult:
     """Run one bounded discovery-only monitor probe.
@@ -172,24 +182,31 @@ def probe_monitor_once(
         )
 
     content_type = downloaded.content_type.split(";", 1)[0].lower()
-    if content_type not in _XML_CONTENT_TYPES:
-        return _record_and_result(
-            session,
-            monitor,
-            started_at=started_at,
-            finished_at=finished_at,
-            outcome=MonitorRunOutcome.FAILED,
-            reason="unexpected_feed_content_type",
-            error_code="unexpected_feed_content_type",
-            commit=commit,
-        )
-
     try:
-        discovery = discover_feed_items(
-            downloaded.content,
-            source_id=monitor.source_id,
-            limit=monitor.max_new_documents_per_run,
-        )
+        if monitor.source_id == "mospi":
+            if content_type != "application/json":
+                raise ValueError("unexpected_mospi_content_type")
+            discovery = discover_mospi_latest_releases(
+                downloaded.content,
+                limit=monitor.max_new_documents_per_run,
+            )
+        else:
+            if content_type not in _XML_CONTENT_TYPES:
+                return _record_and_result(
+                    session,
+                    monitor,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    outcome=MonitorRunOutcome.FAILED,
+                    reason="unexpected_feed_content_type",
+                    error_code="unexpected_feed_content_type",
+                    commit=commit,
+                )
+            discovery = discover_feed_items(
+                downloaded.content,
+                source_id=monitor.source_id,
+                limit=monitor.max_new_documents_per_run,
+            )
     except ValueError:
         return _record_and_result(
             session,
