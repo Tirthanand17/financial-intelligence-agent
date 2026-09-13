@@ -151,3 +151,14 @@ def test_quality_floor_rejects_schedule_colon_fragments_but_keeps_financial_metr
     ) == "schedule_time_fragment"
     assert not is_claim_eligible(schedule_fragment)
     assert is_claim_eligible(base)
+
+
+def test_quality_floor_keeps_legitimate_financial_metric_shapes() -> None:
+    for metric in (
+        "CRR",
+        "SLR",
+        "MCLR (Overnight)",
+        "10-Year G-Sec Yield",
+        "GDP Growth",
+    ):
+        assert claim_quality_rejection_reason(metric, f"{metric}: 5.25%") is None
