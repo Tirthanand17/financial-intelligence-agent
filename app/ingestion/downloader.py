@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from urllib.parse import urlparse
 
@@ -35,6 +35,10 @@ class DownloadedDocument:
     content_type: str
     sha256: str
     retrieved_at: datetime
+    # Optional source-derived page-level date retained when a trusted detail page
+    # resolves to a separate evidence attachment (for example, a SEBI order PDF).
+    # Retrieval time is never used as publication time.
+    publication_date_hint: date | None = None
 
 
 def _validate_redirect_target(source_url: str, final_url: str, source: SourceDefinition) -> None:
