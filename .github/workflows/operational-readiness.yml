@@ -91,8 +91,10 @@ jobs:
       - name: Require one-shot confirmation
         if: ${{ inputs.mode == 'one-shot' }}
         shell: bash
+        env:
+          ONE_SHOT_CONFIRMATION: ${{ inputs.confirmation }}
         run: |
-          if [ "${{ inputs.confirmation }}" != "RUN-ONE-BOUNDED-CYCLE" ]; then
+          if [ "${ONE_SHOT_CONFIRMATION}" != "RUN-ONE-BOUNDED-CYCLE" ]; then
             echo "BLOCKED: exact one-shot confirmation was not supplied."
             exit 1
           fi
@@ -103,9 +105,10 @@ jobs:
           SOURCE_MONITORING_ENABLED: "true"
           SOURCE_AUTO_INGEST_ENABLED: "true"
           TRUST_PROMOTION_ENABLED: "false"
+          SELECTED_MONITOR_ID: ${{ inputs.monitor_id }}
         run: |
           python scripts/phase14_integrated_cycle_canary.py \
-            --monitor-id "${{ inputs.monitor_id }}" \
+            --monitor-id "${SELECTED_MONITOR_ID}" \
             --processing-limit 1 \
             --allow-network \
             --allow-write | tee /tmp/one-shot-cycle.log
