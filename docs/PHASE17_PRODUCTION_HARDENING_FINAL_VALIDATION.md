@@ -32,3 +32,13 @@ This validates starvation resistance and retry recovery without changing the pro
 `scripts/phase17_read_only_soak.py` repeatedly samples PostgreSQL row counts, B2 usage, Qdrant points, capacity state, and process RSS. It fails if persistence counts drift, capacity becomes unsafe, or memory growth exceeds the configured bound.
 
 The live 10-cycle soak passed with stable counts on every sample: 11 documents, 37 claims, 40 discoveries, 8 monitor runs, 2,448,214 B2 bytes, and 31 Qdrant points. Recorded RSS growth was 131,072 bytes, below the 64 MiB bound.
+
+## Storage preservation policy
+
+Storage pressure must never be handled by deleting source evidence, dropping provenance, reducing validation, or silently lowering chunk/claim integrity. Capacity is fail-closed: LOW, EXHAUSTED, UNKNOWN, or missing capacity signals stop new ingestion and require operator action before writes resume.
+
+At the validated checkpoint, usage was far below the approved ceilings (400 MiB Supabase, 8192 MiB B2, 100000 Qdrant points). If the configured 10% remaining-capacity watermark is reached, the system must pause ingestion and notify the operator so storage can be expanded, migrated, or otherwise handled without weakening the evidence model.
+
+## Closeout
+
+Phase 17 may close only after the full suite and branch/PR CI are green, the live production-readiness audit and bounded soak pass, and a final post-merge read-only audit confirms the same invariants. Finishing this phase does not authorize unattended activation of the three global gates.
