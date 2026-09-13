@@ -31,6 +31,27 @@ def test_ddnews_unrelated_site_header_date_is_not_used() -> None:
     assert extract_source_publication_date("ddnews", text) is None
 
 
+def test_sebi_detail_page_standalone_date_is_extracted() -> None:
+    text = (
+        "Enforcement\n"
+        "Appeal No. 7052 of 2026 filed by Kamal Kumar\n"
+        "Sep 11, 2026\n"
+        "Orders : Orders of AA under the RTI Act"
+    )
+
+    assert extract_source_publication_date("sebi", text) == date(2026, 9, 11)
+
+
+def test_sebi_body_date_embedded_in_sentence_is_not_used() -> None:
+    text = (
+        "Enforcement\n"
+        "Appeal No. 7052 of 2026 filed by Kamal Kumar\n"
+        "The appeal was received on Sep 11, 2026 and reviewed later."
+    )
+
+    assert extract_source_publication_date("sebi", text) is None
+
+
 def test_unknown_source_never_gets_generic_document_date() -> None:
     text = "Date : Jun 05, 2026\nPolicy Repo Rate : 5.25%"
 
