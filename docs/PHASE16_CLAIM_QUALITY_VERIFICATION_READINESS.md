@@ -22,7 +22,7 @@ The eligibility layer rejects only high-confidence non-fact output classes obser
 - month/year heading fragments such as `SEP 2026 2`;
 - schedule prose misread as key/value data when the evidence line contains multiple clock times.
 
-Legitimate financial metrics such as CRR, SLR, MCLR and G-Sec yield remain eligible. The existing subject-attribution rule for `Policy Repo Rate` is applied after the quality floor.
+Legitimate short financial abbreviations and metrics such as OI, PE, P/E, CRR, SLR, MCLR and G-Sec yield remain eligible. The existing subject-attribution rule for `Policy Repo Rate` is applied after the quality floor.
 
 ## Verification and trust boundary
 
@@ -30,10 +30,16 @@ The same narrow quality predicate is now enforced when comparing evidence. A qua
 
 This does not weaken the existing independence, authority-level, temporal-scope, entity-attribution, and conflict checks. It only prevents known parser noise from being counted as evidence.
 
+## Live read-only validation
+
+The final Phase 16 live audit ran with all three global gates false and reviewed 37 active claims. All 37 remained `candidate`; 15 legacy quality issues were inventoried without mutation: 7 metadata metrics, 1 month-heading fragment, 5 schedule-time fragments, and 2 short parser fragments. There were 0 VERIFIED/TRUSTED claims, 0 unreviewed promotable claims, 0 verification events, and 0 trust events. Both Phase 16 audit scripts returned `PASS-READ-ONLY`.
+
+Controlled read-only pending preflights then exercised the new quality floor on fresh official evidence. The NSE preflight validated one first-party PDF (351050 bytes, SHA-256 `d81b72aaefa9e4565fa130091147991cba54908fb7b5bd55aea683dad9fcce92`) with 3 eligible claims and no writes. The MoSPI preflight validated one first-party PDF (341138 bytes, SHA-256 `2289bc74eb2a598252ca0ed9e08cf29233daf6f02af856485f3757dcd2382baf`) with 0 eligible claims and no writes. This demonstrates that the quality floor can suppress non-fact output without changing preserved source evidence.
+
 ## Read-only audits
 
 `scripts/phase16_claim_quality_readiness.py` inventories legacy quality debt and claim-state counts without changing any row. `scripts/phase16_closeout_readiness.py` additionally fails closed if a quality-failed row is already VERIFIED/TRUSTED, if a real persisted claim is currently promotable and therefore requires controlled review, if any trust-promotion event exists while the gate is expected off, or if any global automation/trust gate is enabled.
 
-## Advancement criteria
+## Closeout
 
-Phase 16 may close only after the full suite and CI are green and both read-only audits pass against the live database. If a genuine promotable claim is discovered, Phase 16 must stop for a separate controlled trust canary rather than enabling promotion globally. Legacy candidate-quality debt may remain preserved because source evidence must not be silently rewritten or deleted.
+Phase 16 closeout criteria are satisfied: the full local suite passed with 334 tests and 2 pre-existing deprecation warnings, branch and pull-request CI are green, both live read-only audits passed, and fresh NSE/MoSPI preflights preserved zero-write behavior while applying the quality floor. No genuine promotable persisted claim currently exists, so no trust canary is authorized and `TRUST_PROMOTION_ENABLED` remains false.
