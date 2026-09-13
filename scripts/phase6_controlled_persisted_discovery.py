@@ -10,7 +10,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.core.config import get_settings
-from app.ingestion.downloader import download_trusted_document
 from app.monitoring.controlled import (
     snapshot_monitoring_database,
     validate_controlled_discovery_delta,
@@ -21,7 +20,7 @@ from app.monitoring.measurements import (
     measure_cloud_usage,
 )
 from app.monitoring.registry import get_monitor
-from app.monitoring.runner import probe_monitor_once
+from app.monitoring.runner import download_monitor_payload, probe_monitor_once
 from app.storage.database import get_session
 from app.storage.object_store import get_s3_client
 from app.storage.vector_store import get_qdrant_client
@@ -122,7 +121,7 @@ def main() -> None:
         before = snapshot_monitoring_database(session)
         started_at = datetime.now(UTC)
         try:
-            downloaded = download_trusted_document(monitor.source_id, monitor.url)
+            downloaded = download_monitor_payload(monitor.source_id, monitor.url)
         except ConnectionError:
             print("FINAL: BLOCKED - feed download failed with transient_network_error; no writes committed.")
             session.rollback()

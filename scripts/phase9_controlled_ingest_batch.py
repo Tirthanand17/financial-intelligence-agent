@@ -199,13 +199,14 @@ def main() -> None:
         preflight_observations: list[BatchPreflightObservation] = []
 
         # All selected items must pass before the first write is allowed.
-        for index, (record_id, url, title, _) in enumerate(selected, start=1):
+        for index, (record_id, url, title, publication_date) in enumerate(selected, start=1):
             try:
                 preflight = preflight_discovered_url(
                     monitor.source_id,
                     url,
                     chunk_size=settings.chunk_size_chars,
                     chunk_overlap=settings.chunk_overlap_chars,
+                    publication_date_hint=publication_date,
                 )
             except Exception as exc:
                 print(

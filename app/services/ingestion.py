@@ -167,7 +167,9 @@ def ingest_downloaded_document(
 
     The source and final URLs are revalidated before any persistence begins, and
     an optional expected SHA-256 still fails closed before touching PostgreSQL,
-    object storage, or the vector store.
+    object storage, or the vector store. A publication-date hint is accepted only
+    when it is already attached to the validated DownloadedDocument by a trusted
+    source-specific preflight path; retrieval time is never substituted.
     """
     source_id = downloaded.source.source_id
     validate_source_url(source_id, downloaded.source_url)
@@ -226,7 +228,10 @@ def ingest_downloaded_document(
             raise ValueError("Document produced no searchable chunks")
 
         document_id = str(uuid4())
-        publication_date = extract_source_publication_date(source_id, extracted.text)
+        publication_date = (
+            downloaded.publication_date_hint
+            or extract_source_publication_date(source_id, extracted.text)
+        )
         claims = _extract_claim_candidates(
             chunks=chunks,
             document_id=document_id,

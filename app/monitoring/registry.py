@@ -2,14 +2,38 @@ from app.monitoring.models import MonitorDefinition
 from app.sources.registry import validate_source_url
 
 
-# Registry entries describe monitors that are approved/configured for Phase 5.
-# Whether monitoring may run at all is controlled separately by the global
-# SOURCE_MONITORING_ENABLED safety gate, which remains false by default.
+# Registry entries describe monitors that are approved/configured for source
+# discovery. Whether monitoring may run at all is controlled separately by the
+# global SOURCE_MONITORING_ENABLED safety gate, which remains false by default.
 MONITORS: tuple[MonitorDefinition, ...] = (
     MonitorDefinition(
         monitor_id="rbi-press-releases-rss",
         source_id="rbi",
         url="https://rbi.org.in/pressreleases_rss.xml",
+        interval_minutes=60,
+        enabled=True,
+        max_new_documents_per_run=10,
+    ),
+    MonitorDefinition(
+        monitor_id="sebi-rss",
+        source_id="sebi",
+        url="https://www.sebi.gov.in/sebirss.xml",
+        interval_minutes=60,
+        enabled=True,
+        max_new_documents_per_run=10,
+    ),
+    MonitorDefinition(
+        monitor_id="nse-daily-buyback-rss",
+        source_id="nse",
+        url="https://nsearchives.nseindia.com/content/RSS/Daily_Buyback.xml",
+        interval_minutes=60,
+        enabled=True,
+        max_new_documents_per_run=10,
+    ),
+    MonitorDefinition(
+        monitor_id="mospi-latest-releases-api",
+        source_id="mospi",
+        url="https://www.mospi.gov.in/api/latest-release/get-web-latest-release-list",
         interval_minutes=60,
         enabled=True,
         max_new_documents_per_run=10,

@@ -1,6 +1,6 @@
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from urllib.parse import urlparse, urlunparse
@@ -55,6 +55,14 @@ def _publication_date(value: str | None) -> date | None:
         return None
     try:
         return parsedate_to_datetime(value).date()
+    except (TypeError, ValueError, OverflowError):
+        pass
+
+    # Some first-party feeds publish an ISO-like timestamp without an RFC 2822
+    # timezone, for example ``2026-09-11 18:36:55``. This remains a
+    # source-provided publication date; retrieval time is never substituted.
+    try:
+        return datetime.fromisoformat(value.strip()).date()
     except (TypeError, ValueError, OverflowError):
         return None
 
