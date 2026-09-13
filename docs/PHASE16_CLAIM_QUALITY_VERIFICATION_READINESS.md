@@ -1,6 +1,6 @@
 # Phase 16 — Claim Quality and Verification Readiness
 
-Phase 15 closed the India Authority-A monitoring gap and proved controlled exact-byte canaries for SEBI, NSE, and MoSPI. Phase 16 does **not** turn on trust promotion. The first Phase 16 objective is to prevent obvious parser noise and page metadata from entering the structured-claim layer, then measure whether the remaining persisted evidence is suitable for conservative cross-source verification.
+Phase 15 closed the India Authority-A monitoring gap and proved controlled exact-byte canaries for SEBI, NSE, and MoSPI. Phase 16 does **not** turn on trust promotion. Its objective is to prevent obvious parser noise and page metadata from entering the structured-claim layer, then prove that verification and trust decisions cannot use quality-failed legacy rows as corroborating evidence.
 
 ## Safety invariants
 
@@ -13,21 +13,27 @@ The normal runtime gates remain disabled during Phase 16 hardening:
 - no legacy claim is rewritten merely because a newer quality rule would reject it;
 - quality rules act on derived structured candidates, not on preserved source evidence.
 
-## First checkpoint — narrow quality floor
+## Narrow structured-claim quality floor
 
-The eligibility layer now rejects only high-confidence non-fact output classes observed during real Phase 15 canaries:
+The eligibility layer rejects only high-confidence non-fact output classes observed during real canaries:
 
 - page metadata labels such as `Posted On`, `Release ID`, `Visitor Counter`, `Date`, `Phone no`, and `Scrip Code`;
 - one- or two-letter parser fragments such as `r.` and `i r.`;
 - month/year heading fragments such as `SEP 2026 2`;
 - schedule prose misread as key/value data when the evidence line contains multiple clock times.
 
-The existing subject-attribution rule for `Policy Repo Rate` remains unchanged and is applied after the quality floor.
+Legitimate financial metrics such as CRR, SLR, MCLR and G-Sec yield remain eligible. The existing subject-attribution rule for `Policy Repo Rate` is applied after the quality floor.
 
-## Legacy evidence policy
+## Verification and trust boundary
 
-Existing candidate claims remain preserved. `scripts/phase16_claim_quality_readiness.py` performs a read-only inventory of legacy quality debt and claim-state counts. It reports examples with bounded output but performs no state transition, deletion, trust promotion, or evidence mutation.
+The same narrow quality predicate is now enforced when comparing evidence. A quality-failed legacy row is preserved in its current state, but it cannot independently verify a clean claim, create a conflict against a clean claim, corroborate a primary claim for trust promotion, or itself advance from VERIFIED to TRUSTED.
+
+This does not weaken the existing independence, authority-level, temporal-scope, entity-attribution, and conflict checks. It only prevents known parser noise from being counted as evidence.
+
+## Read-only audits
+
+`scripts/phase16_claim_quality_readiness.py` inventories legacy quality debt and claim-state counts without changing any row. `scripts/phase16_closeout_readiness.py` additionally fails closed if a quality-failed row is already VERIFIED/TRUSTED, if a real persisted claim is currently promotable and therefore requires controlled review, if any trust-promotion event exists while the gate is expected off, or if any global automation/trust gate is enabled.
 
 ## Advancement criteria
 
-Phase 16 may advance only after the full test suite is green, the read-only quality audit is understood, controlled preflights show materially cleaner eligible-claim output, and verification/trust readiness is still fail-closed. Automatic `TRUSTED` promotion is not allowed merely because a claim passes the quality floor; independent corroboration and all existing trust-policy requirements still apply.
+Phase 16 may close only after the full suite and CI are green and both read-only audits pass against the live database. If a genuine promotable claim is discovered, Phase 16 must stop for a separate controlled trust canary rather than enabling promotion globally. Legacy candidate-quality debt may remain preserved because source evidence must not be silently rewritten or deleted.
