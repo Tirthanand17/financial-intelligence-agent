@@ -62,8 +62,8 @@ def _resolve_preflight_evidence(
 
     if source_id != "sebi" or initial.content_type != "text/html":
         publication_date = (
-            extract_source_publication_date(source_id, initial_extracted.text)
-            or initial.publication_date_hint
+            initial.publication_date_hint
+            or extract_source_publication_date(source_id, initial_extracted.text)
         )
         return initial, initial_extracted, publication_date
 
@@ -84,10 +84,10 @@ def _resolve_preflight_evidence(
         raise ValueError("SEBI approved attachment did not return PDF evidence")
 
     attachment_extracted = _validated_extraction(attachment)
-    publication_date = (
-        extract_source_publication_date(source_id, attachment_extracted.text)
-        or page_publication_date
-    )
+    # The detail wrapper's standalone date is the authoritative page-level date
+    # for this resolved attachment. Only fall back to the attachment's own trusted
+    # hint if one was already supplied; never guess from retrieval time.
+    publication_date = page_publication_date or attachment.publication_date_hint
 
     # Preserve the discovered wrapper as source provenance while the final URL,
     # hash and bytes identify the exact PDF evidence that passed preflight.
