@@ -157,6 +157,9 @@ def test_quality_floor_keeps_legitimate_financial_metric_shapes() -> None:
     for metric in (
         "CRR",
         "SLR",
+        "OI",
+        "PE",
+        "P/E",
         "MCLR (Overnight)",
         "10-Year G-Sec Yield",
         "GDP Growth",
