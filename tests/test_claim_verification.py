@@ -28,9 +28,7 @@ def _claim(**overrides) -> StructuredClaim:
 
 def test_single_source_remains_candidate() -> None:
     target = _claim()
-
     decision = assess_claim(target, [target])
-
     assert decision.state is ClaimState.CANDIDATE
     assert decision.reason == "insufficient_independent_sources"
 
@@ -41,9 +39,7 @@ def test_two_documents_from_same_source_do_not_verify() -> None:
         document_id="22222222-2222-2222-2222-222222222222",
         source_url="https://www.rbi.org.in/another-page",
     )
-
     decision = assess_claim(target, [target, duplicate_source])
-
     assert decision.state is ClaimState.CANDIDATE
     assert decision.supporting_source_ids == ("rbi",)
 
@@ -55,9 +51,7 @@ def test_two_independent_sources_agree_and_verify() -> None:
         source_url="https://www.worldbank.org/example",
         document_id="22222222-2222-2222-2222-222222222222",
     )
-
     decision = assess_claim(target, [target, corroborating])
-
     assert decision.state is ClaimState.VERIFIED
     assert decision.reason == "independent_sources_agree"
     assert decision.supporting_source_ids == ("rbi", "world_bank")
@@ -73,9 +67,7 @@ def test_equivalent_percent_wording_verifies_by_numeric_value() -> None:
         value_numeric=Decimal("5.25"),
         evidence_text="RBI keeps repo rate unchanged at 5.25 per cent",
     )
-
     decision = assess_claim(target, [target, corroborating])
-
     assert decision.state is ClaimState.VERIFIED
     assert decision.supporting_source_ids == ("ddnews", "rbi")
 
@@ -90,9 +82,7 @@ def test_same_scope_disagreement_is_conflicted() -> None:
         value_numeric=Decimal("5.50"),
         evidence_text="Policy Repo Rate : 5.50%",
     )
-
     decision = assess_claim(target, [target, conflicting])
-
     assert decision.state is ClaimState.CONFLICTED
     assert decision.reason == "independent_sources_disagree"
     assert decision.conflicting_source_ids == ("world_bank",)
@@ -108,9 +98,7 @@ def test_different_effective_dates_are_not_conflicts() -> None:
         value_text="5.50%",
         value_numeric=Decimal("5.50"),
     )
-
     decision = assess_claim(target, [target, older])
-
     assert decision.state is ClaimState.CANDIDATE
     assert decision.reason == "insufficient_independent_sources"
 
@@ -124,17 +112,41 @@ def test_missing_date_blocks_automatic_verification() -> None:
         effective_date=None,
         publication_date=None,
     )
-
     decision = assess_claim(target, [target, corroborating])
-
     assert decision.state is ClaimState.CANDIDATE
     assert decision.reason == "missing_temporal_scope"
 
 
 def test_terminal_rejected_state_is_preserved() -> None:
     target = _claim(state=ClaimState.REJECTED)
-
     decision = assess_claim(target, [target])
-
     assert decision.state is ClaimState.REJECTED
     assert decision.reason == "terminal_state_preserved"
+
+
+def test_quality_failed_target_is_preserved_without_verification() -> None:
+    target = _claim(
+        evidence_text="Applications between 9:30 am and 10:30 am are accepted.",
+    )
+    corroborating = _claim(
+        source_id="world_bank",
+        source_url="https://www.worldbank.org/example",
+        document_id="22222222-2222-2222-2222-222222222222",
+    )
+    decision = assess_claim(target, [target, corroborating])
+    assert decision.state is ClaimState.CANDIDATE
+    assert decision.reason == "quality_gate_failed"
+
+
+def test_quality_failed_evidence_cannot_corroborate_good_target() -> None:
+    target = _claim()
+    noisy = _claim(
+        source_id="world_bank",
+        source_url="https://www.worldbank.org/example",
+        document_id="22222222-2222-2222-2222-222222222222",
+        evidence_text="Applications between 9:30 am and 10:30 am are accepted.",
+    )
+    decision = assess_claim(target, [target, noisy])
+    assert decision.state is ClaimState.CANDIDATE
+    assert decision.reason == "insufficient_independent_sources"
+    assert decision.supporting_source_ids == ("rbi",)
