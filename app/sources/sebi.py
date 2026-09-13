@@ -23,12 +23,21 @@ _SEBI_LINK_ATTRIBUTES = (
 # attribute or from a small JavaScript handler. We never execute JavaScript.
 # Instead, we extract only URL-shaped substrings and still require the final
 # evidence target to pass the narrow first-party attachment policy below.
+#
+# The leading negative lookbehind is important: it prevents the scanner from
+# carving a safe-looking relative ``/sebi_data/...`` or ``/web/...`` substring
+# out of an absolute URL that belongs to another host (for example,
+# ``https://example.com/sebi_data/...``). The complete external URL is still
+# considered separately and then rejected by the normal source allow-list.
+_TOKEN_BOUNDARY_RE = r"(?<![A-Za-z0-9._-])"
 _VIEWER_TOKEN_RE = re.compile(
-    r"(?:https://(?:www\.)?sebi\.gov\.in)?/web/\?file=[^\s'\"<>\\)]+",
+    _TOKEN_BOUNDARY_RE
+    + r"(?:https://(?:www\.)?sebi\.gov\.in)?/web/\?file=[^\s'\"<>\\)]+",
     re.IGNORECASE,
 )
 _DIRECT_PDF_TOKEN_RE = re.compile(
-    r"(?:https://(?:www\.)?sebi\.gov\.in)?"
+    _TOKEN_BOUNDARY_RE
+    + r"(?:https://(?:www\.)?sebi\.gov\.in)?"
     r"/sebi_data/attachdocs/[^\s'\"<>\\)]+?\.pdf(?:\?[^\s'\"<>\\)]*)?",
     re.IGNORECASE,
 )
@@ -87,8 +96,14 @@ def _candidate_tokens(value: str) -> list[str]:
     seen: set[str] = set()
 
     for variant in _decoded_variants(value):
-        # A plain href/src may already be exactly the candidate.
-        for token in (variant, *_VIEWER_TOKEN_RE.findall(variant), *_DIRECT_PDF_TOKEN_RE.findall(variant)):
+        # A plain href/src may already be exactly the candidate. Embedded tokens
+        # are additionally extracted, but the token regexes refuse to start in
+        # the middle of an external hostname.
+        for token in (
+            variant,
+            *_VIEWER_TOKEN_RE.findall(variant),
+            *_DIRECT_PDF_TOKEN_RE.findall(variant),
+        ):
             cleaned = token.strip()
             if cleaned and cleaned not in seen:
                 seen.add(cleaned)
