@@ -1,0 +1,112 @@
+name: Operational readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Read-only readiness or one explicitly confirmed bounded cycle"
+        required: true
+        default: readiness
+        type: choice
+        options:
+          - readiness
+          - one-shot
+      monitor_id:
+        description: "Registered monitor to inspect or run"
+        required: true
+        default: rbi-press-releases-rss
+        type: choice
+        options:
+          - rbi-press-releases-rss
+          - sebi-rss
+          - nse-daily-buyback-rss
+          - mospi-latest-releases-api
+      confirmation:
+        description: "For one-shot only, type RUN-ONE-BOUNDED-CYCLE"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: financial-intelligence-operational-readiness
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
+      S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+      S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      S3_REGION: ${{ vars.S3_REGION }}
+      MONITOR_SUPABASE_MAX_MB: ${{ vars.MONITOR_SUPABASE_MAX_MB }}
+      MONITOR_B2_MAX_MB: ${{ vars.MONITOR_B2_MAX_MB }}
+      MONITOR_QDRANT_MAX_POINTS: ${{ vars.MONITOR_QDRANT_MAX_POINTS }}
+      MONITOR_CAPACITY_LOW_WATERMARK_PERCENT: ${{ vars.MONITOR_CAPACITY_LOW_WATERMARK_PERCENT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Require explicit cloud configuration
+        shell: bash
+        run: |
+          missing=0
+          required=(DATABASE_URL QDRANT_URL QDRANT_API_KEY S3_ENDPOINT_URL S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET S3_REGION MONITOR_SUPABASE_MAX_MB MONITOR_B2_MAX_MB MONITOR_QDRANT_MAX_POINTS MONITOR_CAPACITY_LOW_WATERMARK_PERCENT)
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required Actions secret/variable: ${name}"
+              missing=1
+            fi
+          done
+          test "${missing}" -eq 0
+      - name: Fail-closed production readiness
+        env:
+          SOURCE_MONITORING_ENABLED: "false"
+          SOURCE_AUTO_INGEST_ENABLED: "false"
+          TRUST_PROMOTION_ENABLED: "false"
+        run: |
+          python scripts/phase17_production_readiness.py | tee /tmp/production-readiness.log
+          grep -q '^FINAL: PASS-READ-ONLY' /tmp/production-readiness.log
+
+      - name: Require one-shot confirmation
+        if: ${{ inputs.mode == 'one-shot' }}
+        shell: bash
+        run: |
+          if [ "${{ inputs.confirmation }}" != "RUN-ONE-BOUNDED-CYCLE" ]; then
+            echo "BLOCKED: exact one-shot confirmation was not supplied."
+            exit 1
+          fi
+
+      - name: Run exactly one bounded operational cycle
+        if: ${{ inputs.mode == 'one-shot' }}
+        env:
+          SOURCE_MONITORING_ENABLED: "true"
+          SOURCE_AUTO_INGEST_ENABLED: "true"
+          TRUST_PROMOTION_ENABLED: "false"
+        run: |
+          python scripts/phase14_integrated_cycle_canary.py \
+            --monitor-id "${{ inputs.monitor_id }}" \
+            --processing-limit 1 \
+            --allow-network \
+            --allow-write | tee /tmp/one-shot-cycle.log
+          grep -Eq '^FINAL: PASS-(COMMITTED|MONITOR-ONLY|NOT-DUE)' /tmp/one-shot-cycle.log
