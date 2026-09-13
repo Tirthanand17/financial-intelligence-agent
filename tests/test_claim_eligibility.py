@@ -1,7 +1,11 @@
 from datetime import date
 from decimal import Decimal
 
-from app.claims.eligibility import filter_eligible_claims, is_claim_eligible
+from app.claims.eligibility import (
+    claim_quality_rejection_reason,
+    filter_eligible_claims,
+    is_claim_eligible,
+)
 from app.claims.models import ClaimState, StructuredClaim
 
 
@@ -44,7 +48,6 @@ def test_direct_central_bank_repo_rate_is_eligible() -> None:
         entity="Reserve Bank of India",
         attribution_basis="source_default",
     )
-
     assert is_claim_eligible(claim)
 
 
@@ -54,7 +57,6 @@ def test_secondary_repo_rate_requires_explicit_subject_attribution() -> None:
         entity="DD News",
         attribution_basis="source_default",
     )
-
     assert not is_claim_eligible(claim)
 
 
@@ -64,7 +66,6 @@ def test_secondary_repo_rate_with_explicit_rbi_alias_is_eligible() -> None:
         entity="Reserve Bank of India",
         attribution_basis="explicit_local_alias",
     )
-
     assert is_claim_eligible(claim)
 
 
@@ -75,7 +76,6 @@ def test_non_repo_metric_is_not_subject_locked_by_this_gate() -> None:
         attribution_basis="source_default",
         metric="GDP Growth",
     )
-
     assert is_claim_eligible(claim)
 
 
@@ -95,8 +95,59 @@ def test_filter_preserves_only_safe_candidates_and_order() -> None:
         entity="Reserve Bank of India",
         attribution_basis="source_default",
     )
-
     assert filter_eligible_claims([unsafe, safe_secondary, safe_primary]) == [
         safe_secondary,
         safe_primary,
     ]
+
+
+def test_quality_floor_rejects_page_metadata_metrics() -> None:
+    base = _claim(
+        source_id="ddnews",
+        entity="DD News",
+        attribution_basis="source_default",
+        metric="GDP Growth",
+    )
+    for metric in (
+        "Posted On",
+        "Release ID",
+        "Visitor Counter",
+        "Date",
+        "Phone no",
+        "Scrip Code",
+    ):
+        candidate = base.model_copy(update={"metric": metric})
+        assert claim_quality_rejection_reason(metric, candidate.evidence_text) == "metadata_metric"
+        assert not is_claim_eligible(candidate)
+
+
+def test_quality_floor_rejects_short_and_month_heading_fragments() -> None:
+    base = _claim(
+        source_id="ddnews",
+        entity="DD News",
+        attribution_basis="source_default",
+        metric="GDP Growth",
+    )
+    assert not is_claim_eligible(base.model_copy(update={"metric": "r."}))
+    assert not is_claim_eligible(base.model_copy(update={"metric": "i r."}))
+    assert not is_claim_eligible(base.model_copy(update={"metric": "SEP 2026 2"}))
+
+
+def test_quality_floor_rejects_schedule_colon_fragments_but_keeps_financial_metric() -> None:
+    base = _claim(
+        source_id="ddnews",
+        entity="DD News",
+        attribution_basis="source_default",
+        metric="GDP Growth",
+    )
+    schedule_fragment = base.model_copy(
+        update={
+            "metric": "am and 10",
+            "evidence_text": "Applications between 9:30 am and 10:30 am are accepted.",
+        }
+    )
+    assert claim_quality_rejection_reason(
+        schedule_fragment.metric, schedule_fragment.evidence_text
+    ) == "schedule_time_fragment"
+    assert not is_claim_eligible(schedule_fragment)
+    assert is_claim_eligible(base)
