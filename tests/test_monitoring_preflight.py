@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 
 import pytest
@@ -130,3 +130,22 @@ def test_preflight_rejects_invalid_chunk_configuration_before_download() -> None
         )
 
     assert calls == 0
+
+
+def test_preflight_preserves_trusted_discovery_publication_date_hint() -> None:
+    content = b"""<html><head><title>RBI release</title></head><body>
+    <h1>Reserve Bank of India</h1>
+    <p>Policy Repo Rate : 5.25%</p>
+    </body></html>"""
+
+    result = preflight_discovered_url(
+        "rbi",
+        "https://www.rbi.org.in/press-release/123",
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        download=lambda *_: _downloaded(content=content),
+        publication_date_hint=date(2026, 9, 11),
+    )
+
+    assert result.publication_date == date(2026, 9, 11)
+    assert result.downloaded.publication_date_hint == date(2026, 9, 11)

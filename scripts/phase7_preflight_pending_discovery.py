@@ -137,6 +137,7 @@ def main() -> None:
                 record.url,
                 chunk_size=settings.chunk_size_chars,
                 chunk_overlap=settings.chunk_overlap_chars,
+                publication_date_hint=record.publication_date,
             )
         except ConnectionError:
             print("FINAL: BLOCKED - source download failed with transient_network_error; no writes were made.")

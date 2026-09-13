@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from app.claims.eligibility import filter_eligible_claims
@@ -43,6 +43,7 @@ def _resolve_preflight_evidence(
     requested_url: str,
     *,
     download: DownloadDocument,
+    publication_date_hint: date | None = None,
 ) -> tuple[DownloadedDocument, ExtractedDocument, date | None]:
     """Resolve the exact evidence bytes approved for a one-item preflight.
 
@@ -55,16 +56,19 @@ def _resolve_preflight_evidence(
     """
     initial = download(source_id, requested_url)
     initial_extracted = _validated_extraction(initial)
-    page_publication_date = extract_source_publication_date(
-        source_id,
-        initial_extracted.text,
+    page_publication_date = (
+        extract_source_publication_date(source_id, initial_extracted.text)
+        or publication_date_hint
     )
 
     if source_id != "sebi" or initial.content_type != "text/html":
         publication_date = (
             initial.publication_date_hint
             or extract_source_publication_date(source_id, initial_extracted.text)
+            or publication_date_hint
         )
+        if publication_date is not None and initial.publication_date_hint != publication_date:
+            initial = replace(initial, publication_date_hint=publication_date)
         return initial, initial_extracted, publication_date
 
     attachment_url = extract_sebi_primary_pdf_url(initial.content, initial.final_url)
@@ -77,6 +81,8 @@ def _resolve_preflight_evidence(
                 "SEBI detail page is a thin HTML wrapper without one validated "
                 "first-party PDF attachment"
             )
+        if page_publication_date is not None and initial.publication_date_hint != page_publication_date:
+            initial = replace(initial, publication_date_hint=page_publication_date)
         return initial, initial_extracted, page_publication_date
 
     attachment = download(source_id, attachment_url)
@@ -111,6 +117,7 @@ def preflight_discovered_url(
     chunk_size: int,
     chunk_overlap: int,
     download: DownloadDocument = download_trusted_document,
+    publication_date_hint: date | None = None,
 ) -> DiscoveryPreflightResult:
     """Validate one discovered URL in memory without persisting any state.
 
@@ -144,6 +151,7 @@ def preflight_discovered_url(
         source_id,
         url,
         download=download,
+        publication_date_hint=publication_date_hint,
     )
 
     chunks = chunk_text(

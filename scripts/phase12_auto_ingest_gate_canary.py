@@ -137,6 +137,7 @@ def main() -> None:
                 record.url,
                 chunk_size=settings.chunk_size_chars,
                 chunk_overlap=settings.chunk_overlap_chars,
+                publication_date_hint=record.publication_date,
             )
         except Exception as exc:
             print(
