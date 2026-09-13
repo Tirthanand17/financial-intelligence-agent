@@ -229,8 +229,8 @@ def ingest_downloaded_document(
 
         document_id = str(uuid4())
         publication_date = (
-            extract_source_publication_date(source_id, extracted.text)
-            or downloaded.publication_date_hint
+            downloaded.publication_date_hint
+            or extract_source_publication_date(source_id, extracted.text)
         )
         claims = _extract_claim_candidates(
             chunks=chunks,
