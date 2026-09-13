@@ -22,6 +22,14 @@ MONITORS: tuple[MonitorDefinition, ...] = (
         enabled=True,
         max_new_documents_per_run=10,
     ),
+    MonitorDefinition(
+        monitor_id="nse-daily-buyback-rss",
+        source_id="nse",
+        url="https://nsearchives.nseindia.com/content/RSS/Daily_Buyback.xml",
+        interval_minutes=60,
+        enabled=True,
+        max_new_documents_per_run=10,
+    ),
 )
 
 
