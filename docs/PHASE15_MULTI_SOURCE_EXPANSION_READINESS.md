@@ -2,10 +2,22 @@
 
 Phase 14 proved one cadence-eligible source-monitor cycle can be followed by exactly one bounded evidence ingestion while trust promotion remains disabled.
 
-Phase 15 expands source coverage conservatively. The first checkpoint is read-only and inventories which trusted sources already have approved monitors.
+Phase 15 expands source coverage conservatively, one source at a time. The initial read-only inventory confirmed eight enabled trusted sources, one approved monitor (RBI), and three unmonitored India Authority-A sources: SEBI, NSE, and MoSPI.
 
-Current trusted-source registry contains eight enabled sources. The current monitor registry contains only the RBI press-release RSS monitor. The first expansion priority is the remaining India Authority-A primary sources already present in the trusted-source registry: SEBI, NSE, and MoSPI.
+## SEBI checkpoint
 
-This checkpoint does not add source URLs, perform discovery, fetch documents, write PostgreSQL, write Backblaze B2, write Qdrant, enable recurring scheduling, or enable trust promotion. Each future source monitor must be added only after an official machine-readable or otherwise stable allow-listed endpoint is verified independently and its parser/discovery behavior is tested fail-closed.
+The official SEBI RSS endpoint `https://www.sebi.gov.in/sebirss.xml` was independently probed read-only. The live probe fetched only the RSS XML once, followed no discovered item URLs, discovered 10 allow-listed SEBI items, rejected 0, and made no PostgreSQL, Backblaze B2, or Qdrant writes. The observed feed items did not provide publication dates, so `publication_date=None` remains an explicit supported state rather than being inferred from retrieval time.
 
-`SOURCE_MONITORING_ENABLED`, `SOURCE_AUTO_INGEST_ENABLED`, and `TRUST_PROMOTION_ENABLED` remain false for the readiness checkpoint.
+After that successful probe, Phase 15 registers exactly one new monitor:
+
+- monitor ID: `sebi-rss`
+- source: `sebi`
+- URL: `https://www.sebi.gov.in/sebirss.xml`
+- interval: 60 minutes
+- maximum discoveries per run: 10
+
+Registration alone does not authorize live monitoring, automatic ingestion, trust promotion, recurring scheduling, or item-detail fetching. `SOURCE_MONITORING_ENABLED`, `SOURCE_AUTO_INGEST_ENABLED`, and `TRUST_PROMOTION_ENABLED` remain false by default.
+
+The next controlled checkpoint after registration readiness is discovery-metadata persistence for SEBI only. That checkpoint may commit bounded monitor run/state/discovery queue metadata to PostgreSQL, but must create no documents, claims, trust events, Backblaze B2 objects, or Qdrant points. It must then prove idempotent re-observation before any one-item exact-byte ingestion canary is considered.
+
+NSE and MoSPI remain unregistered until SEBI independently passes these staged checks.
