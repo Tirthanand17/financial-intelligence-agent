@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     chunk_size_chars: int = 3500
     chunk_overlap_chars: int = 400
 
+    # Private read-only dashboard. Both values are required before the dashboard
+    # routes become available; they must be supplied through deployment secrets.
+    dashboard_username: str | None = None
+    dashboard_password: str | None = None
+
     # Phase 4 trust promotion is deliberately disabled by default. The code path
     # may be exercised in isolated tests, but live ingestion must not upgrade a
     # VERIFIED claim to TRUSTED until real dated primary + independent evidence
