@@ -17,6 +17,10 @@ _MONTH_HEADING_RE = re.compile(
     r"^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+\d{4}\b",
     re.IGNORECASE,
 )
+# Observed parser noise such as ``r.`` and ``i r.`` is deliberately narrower
+# than a generic short-metric rule so legitimate abbreviations such as OI or PE
+# are not rejected merely because they contain two letters.
+_SHORT_FRAGMENT_RE = re.compile(r"^[A-Za-z](?:\s+[A-Za-z])?\.?$")
 _TIME_TOKEN_RE = re.compile(r"\b\d{1,2}:\d{2}\b")
 
 
@@ -37,8 +41,7 @@ def claim_quality_rejection_reason(metric: str, evidence_text: str) -> str | Non
     if normalized_metric in _NON_FACT_METRICS:
         return "metadata_metric"
 
-    letters = "".join(char for char in metric if char.isalpha())
-    if len(letters) <= 2:
+    if _SHORT_FRAGMENT_RE.fullmatch(metric.strip()):
         return "short_metric_fragment"
 
     if _MONTH_HEADING_RE.search(metric.strip()):
