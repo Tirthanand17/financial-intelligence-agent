@@ -2,21 +2,14 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 
+from app.claims.eligibility import claim_quality_rejection_reason
 from app.claims.models import ClaimState, StructuredClaim
 from app.sources.registry import get_source_independence_group
 
 
 @dataclass(frozen=True, slots=True)
 class VerificationDecision:
-    """Result of evaluating one claim against comparable evidence.
-
-    A claim can become VERIFIED only when at least two independent publisher/
-    institution groups agree on the same value for the same entity, metric, unit,
-    and temporal scope. Multiple brands or websites owned by the same publisher
-    count once. Conflicts are surfaced only when a different independent group
-    disagrees; same-group duplicate/revision noise does not masquerade as an
-    independent conflict.
-    """
+    """Result of evaluating one claim against comparable evidence."""
 
     state: ClaimState
     reason: str
@@ -31,7 +24,6 @@ def _normalized_text(value: str | None) -> str:
 
 
 def _temporal_scope(claim: StructuredClaim) -> tuple[str, date] | None:
-    """Return the strongest date available for safe cross-source comparison."""
     if claim.effective_date is not None:
         return ("effective", claim.effective_date)
     if claim.publication_date is not None:
@@ -52,12 +44,6 @@ def _comparison_key(claim: StructuredClaim) -> tuple[str, str, str, tuple[str, d
 
 
 def _value_key(claim: StructuredClaim) -> str:
-    """Canonicalize safely parsed scalars while preserving text-only values.
-
-    This lets equivalent representations such as `5.25%` and `5.25 per cent`
-    agree without weakening range handling. Ranges and other values that cannot
-    be represented by one scalar still compare by normalized source text.
-    """
     if claim.value_numeric is not None:
         return (
             f"numeric:{claim.value_numeric.normalize()}:"
@@ -70,9 +56,11 @@ def _independence_group(source_id: str) -> str:
     try:
         return get_source_independence_group(source_id)
     except ValueError:
-        # Synthetic/local test sources that are intentionally not in the trusted
-        # registry remain independent by source ID.
         return source_id
+
+
+def _quality_ok(claim: StructuredClaim) -> bool:
+    return claim_quality_rejection_reason(claim.metric, claim.evidence_text) is None
 
 
 def assess_claim(
@@ -81,18 +69,23 @@ def assess_claim(
 ) -> VerificationDecision:
     """Assess one claim without mutating it or writing to the database.
 
-    Rules are intentionally conservative:
-    - one independent publisher/institution group alone never verifies a claim;
-    - multiple documents or brands from the same group still count as one;
-    - no date means no automatic cross-source verification or conflict;
-    - two or more independent groups that agree -> VERIFIED;
-    - a different independent group that disagrees in the same scope -> CONFLICTED;
-    - TRUSTED is never assigned automatically in this layer.
+    Verification requires independent groups to agree on the same entity, metric,
+    unit, value and temporal scope. Phase 16 additionally prevents legacy parser
+    noise from serving as either a verification target or corroborating evidence.
+    A quality-failed legacy target is preserved in its current state for explicit
+    review rather than being silently rewritten.
     """
     if target.state in {ClaimState.REJECTED, ClaimState.SUPERSEDED}:
         return VerificationDecision(
             state=target.state,
             reason="terminal_state_preserved",
+        )
+
+    if not _quality_ok(target):
+        return VerificationDecision(
+            state=target.state,
+            reason="quality_gate_failed",
+            supporting_source_ids=(target.source_id,),
         )
 
     target_key = _comparison_key(target)
@@ -103,7 +96,11 @@ def assess_claim(
             supporting_source_ids=(target.source_id,),
         )
 
-    comparable = [claim for claim in evidence if _comparison_key(claim) == target_key]
+    comparable = [
+        claim
+        for claim in evidence
+        if _quality_ok(claim) and _comparison_key(claim) == target_key
+    ]
     if not any(claim is target for claim in comparable):
         comparable.append(target)
 
