@@ -10,7 +10,8 @@ def _workflow_text() -> str:
 
 def test_scheduler_runs_once_daily_at_0930_ist() -> None:
     text = _workflow_text()
-    assert "cron: '0 4 * * *'" in text
+    assert "cron: '30 9 * * *'" in text
+    assert "timezone: 'Asia/Kolkata'" in text
     assert 'schedule:' in text
 
 
