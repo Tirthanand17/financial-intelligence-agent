@@ -2,7 +2,8 @@ name: Scheduled operational cycle
 
 on:
   schedule:
-    - cron: '0 4 * * *' # 09:30 IST
+    - cron: '30 9 * * *'
+      timezone: 'Asia/Kolkata'
   workflow_dispatch:
 
 permissions:
