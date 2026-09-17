@@ -22,6 +22,7 @@ DASHBOARD_HUB_HTML = r'''<!doctype html>
   <div class="card"><h2>Quality & Verification Coverage</h2><p class="muted">Per-source extraction-quality debt, missing temporal scope, publisher-independence coverage, exact comparable groups, and independent conflicts.</p><span class="tag">QUALITY</span><br><a class="go" href="/dashboard/quality-coverage">Open</a></div>
   <div class="card"><h2>Economic Indicator Catalog</h2><p class="muted">Exact-alias canonical metric overlay with original persisted source labels preserved, expected units, categories, and mapping coverage.</p><span class="tag">NORMALIZATION</span><br><a class="go" href="/dashboard/indicator-catalog">Open</a></div>
   <div class="card"><h2>Evidence Timeline</h2><p class="muted">Chronological entity/metric evidence using only persisted effective/publication dates, including superseded and undated history.</p><span class="tag">HISTORY</span><br><a class="go" href="/dashboard/timeline">Open</a></div>
+  <div class="card"><h2>Evidence Change Detection</h2><p class="muted">Factual differences between comparable dated evidence, including explicit supersessions and numeric increases/decreases when units match.</p><span class="tag">CHANGE</span><br><a class="go" href="/dashboard/changes">Open</a></div>
 </div>
 <div class="notice"><strong>Safety boundary:</strong> these pages are inspection surfaces only. They do not run ingestion, change scheduler cadence, mutate claim states, enable trust promotion, repair cloud stores, or delete evidence.</div>
 </main></body></html>'''
