@@ -12,7 +12,10 @@ from app.claims.models import ClaimState
 from app.storage.database import ClaimRecord, ClaimSupersessionRecord, get_session
 
 
-TERMINAL_STATES = {ClaimState.REJECTED.value, ClaimState.SUPERSEDED.value}
+# Rejected derived claims are not safe inputs. Superseded claims are deliberately
+# retained because this service is historical: an explicit old->new supersession
+# edge is itself important evidence of change.
+EXCLUDED_STATES = {ClaimState.REJECTED.value}
 
 
 def _temporal_date(row: ClaimRecord) -> date | None:
@@ -49,6 +52,15 @@ def _numeric_delta(previous: ClaimRecord, current: ClaimRecord) -> Decimal | Non
     return Decimal(current.value_numeric) - Decimal(previous.value_numeric)
 
 
+def _same_observed_value(previous: ClaimRecord, current: ClaimRecord) -> bool:
+    """Compare persisted values conservatively without coercing unlike units."""
+    if previous.unit != current.unit:
+        return False
+    if previous.value_numeric is not None and current.value_numeric is not None:
+        return Decimal(previous.value_numeric) == Decimal(current.value_numeric)
+    return previous.value_text.strip().casefold() == current.value_text.strip().casefold()
+
+
 def _iso_date(value: date | None) -> str | None:
     return value.isoformat() if value is not None else None
 
@@ -62,9 +74,9 @@ def build_change_detection_snapshot(
     """Detect factual persisted evidence changes without forecasting or writes.
 
     Comparisons are exact within one entity + canonical exact-alias indicator (or
-    exact source metric when unmapped) + unit series. Only quality-safe, dated,
-    non-terminal claims participate. Unknown dates are not invented and fuzzy
-    metric matching is intentionally disabled.
+    exact source metric when unmapped) + unit series. Quality-safe, dated claims
+    participate, including superseded historical claims. Rejected claims do not.
+    Unknown dates are never invented and fuzzy metric matching is disabled.
     """
     if not 1 <= limit <= 500:
         raise ValueError("limit must be between 1 and 500")
@@ -80,8 +92,8 @@ def build_change_detection_snapshot(
             continue
         if entity is not None and row.entity != entity:
             continue
-        if row.state in TERMINAL_STATES:
-            excluded_reasons["terminal_state"] += 1
+        if row.state in EXCLUDED_STATES:
+            excluded_reasons["rejected_state"] += 1
             continue
         quality_reason = claim_quality_rejection_reason(row.metric, row.evidence_text)
         if quality_reason is not None:
@@ -105,17 +117,7 @@ def build_change_detection_snapshot(
     for series_rows in grouped.values():
         series_rows.sort(key=_sort_key)
         for previous, current in zip(series_rows, series_rows[1:], strict=False):
-            same_value = (
-                previous.value_numeric is not None
-                and current.value_numeric is not None
-                and previous.unit == current.unit
-                and Decimal(previous.value_numeric) == Decimal(current.value_numeric)
-            ) or (
-                previous.value_numeric is None
-                and current.value_numeric is None
-                and previous.value_text.strip().casefold()
-                == current.value_text.strip().casefold()
-            )
+            same_value = _same_observed_value(previous, current)
             edge = supersession_edges.get((previous.id, current.id))
             if same_value and edge is None:
                 unchanged_confirmations += 1
@@ -123,14 +125,14 @@ def build_change_detection_snapshot(
 
             indicator_id, canonical_metric = _series_label(current)
             delta = _numeric_delta(previous, current)
-            if edge is not None:
+            if edge is not None and same_value:
+                change_kind = "supersession_same_value"
+            elif edge is not None:
                 change_kind = "source_supersession"
             elif delta is not None and delta != 0:
                 change_kind = "numeric_value_change"
-            elif not same_value:
-                change_kind = "value_text_change"
             else:
-                change_kind = "supersession_same_value"
+                change_kind = "value_text_change"
 
             direction: str | None = None
             if delta is not None:
@@ -222,6 +224,7 @@ def build_change_detection_snapshot(
             "note": (
                 "Changes are comparisons of persisted dated evidence only. "
                 "Direction is reported only when comparable numeric values share the same unit. "
+                "Superseded claims remain available as historical evidence. "
                 "This is factual evidence history, not a forecast or financial recommendation."
             ),
         },
