@@ -101,7 +101,7 @@ def test_filter_preserves_only_safe_candidates_and_order() -> None:
     ]
 
 
-def test_quality_floor_rejects_page_metadata_metrics() -> None:
+def test_quality_floor_rejects_page_contact_and_identifier_metadata_metrics() -> None:
     base = _claim(
         source_id="ddnews",
         entity="DD News",
@@ -115,10 +115,32 @@ def test_quality_floor_rejects_page_metadata_metrics() -> None:
         "Date",
         "Phone no",
         "Scrip Code",
+        "Email",
+        "Fax No",
+        "GSTIN",
+        "Last Updated",
+        "Page Number",
+        "Serial No",
+        "Sr. No",
+        "S. No",
+        "Telephone Number",
+        "Time",
+        "Toll Free No",
+        "Website URL",
     ):
         candidate = base.model_copy(update={"metric": metric})
         assert claim_quality_rejection_reason(metric, candidate.evidence_text) == "metadata_metric"
         assert not is_claim_eligible(candidate)
+
+
+def test_quality_floor_rejects_numbered_page_and_serial_labels_only() -> None:
+    for metric in ("Page 3", "Page No. 12", "Serial No 7", "Sr. 9", "S. No 4"):
+        assert claim_quality_rejection_reason(metric, f"{metric}: 5") == "metadata_metric"
+
+    # The regex must stay anchored to known metadata stems so legitimate numbered
+    # economic/financial metrics are not removed merely because they contain a number.
+    for metric in ("10-Year G-Sec Yield", "Tier 1 Capital Ratio", "M3 Growth"):
+        assert claim_quality_rejection_reason(metric, f"{metric}: 5.25%") is None
 
 
 def test_quality_floor_rejects_short_and_month_heading_fragments() -> None:
@@ -163,5 +185,9 @@ def test_quality_floor_keeps_legitimate_financial_metric_shapes() -> None:
         "MCLR (Overnight)",
         "10-Year G-Sec Yield",
         "GDP Growth",
+        "Current Account Deficit",
+        "Consumer Price Index",
+        "Fiscal Deficit",
+        "Foreign Exchange Reserves",
     ):
         assert claim_quality_rejection_reason(metric, f"{metric}: 5.25%") is None
