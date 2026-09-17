@@ -1,4 +1,9 @@
-from scripts.production_smoke import SmokeResponse, validate_dashboard_response, validate_health
+from scripts.production_smoke import (
+    PROTECTED_PATHS,
+    SmokeResponse,
+    validate_dashboard_response,
+    validate_health,
+)
 
 
 def test_health_contract_accepts_expected_response() -> None:
@@ -48,3 +53,19 @@ def test_dashboard_contract_rejects_missing_protection_headers() -> None:
     assert "cache_control_not_no_store" in errors
     assert "missing_csp" in errors
     assert "missing_basic_auth_challenge" in errors
+
+
+def test_production_smoke_covers_current_read_only_workspace_pages() -> None:
+    required = {
+        "/dashboard/hub",
+        "/dashboard",
+        "/dashboard/readiness",
+        "/dashboard/intelligence-view",
+        "/dashboard/verification",
+        "/dashboard/quality-coverage",
+        "/dashboard/indicator-catalog",
+        "/dashboard/timeline",
+        "/dashboard/changes",
+        "/dashboard/search",
+    }
+    assert set(PROTECTED_PATHS) == required

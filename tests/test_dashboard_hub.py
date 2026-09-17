@@ -27,8 +27,12 @@ def test_dashboard_hub_reuses_auth_and_exposes_only_read_only_navigation(monkeyp
         "/dashboard",
         "/dashboard/readiness",
         "/dashboard/intelligence-view",
+        "/dashboard/search",
         "/dashboard/verification",
+        "/dashboard/quality-coverage",
+        "/dashboard/indicator-catalog",
         "/dashboard/timeline",
+        "/dashboard/changes",
     ):
         assert route in response.text
 
