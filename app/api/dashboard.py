@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from app.core.config import get_settings
 from app.dashboard import build_dashboard_snapshot
+from app.services.intelligence import build_intelligence_snapshot
 
 router = APIRouter()
 security = HTTPBasic(auto_error=False)
@@ -64,6 +65,7 @@ DASHBOARD_HTML = r'''<!doctype html>
   </div>
   <div class="card"><h2>Source monitors</h2><div id="monitors"></div></div>
   <h2>Recent monitor runs</h2><table><thead><tr><th>Source</th><th>Outcome</th><th>Started</th><th>Discovered</th><th>Ingested</th><th>Error</th></tr></thead><tbody id="runs"></tbody></table>
+  <p class="muted">Protected intelligence JSON: <code>/dashboard/intelligence</code>. It organizes persisted evidence only and does not generate trading signals.</p>
   <p id="updated" class="muted"></p><p id="note" class="muted"></p>
 </main>
 <script>
@@ -97,3 +99,13 @@ def dashboard_page() -> str:
 def dashboard_status(response: Response) -> dict[str, object]:
     response.headers["Cache-Control"] = "no-store"
     return build_dashboard_snapshot()
+
+
+@router.get("/dashboard/intelligence", dependencies=[Depends(require_dashboard_auth)])
+def dashboard_intelligence(
+    response: Response,
+    source_id: str | None = Query(default=None, min_length=2, max_length=64),
+    limit: int = Query(default=12, ge=1, le=50),
+) -> dict[str, object]:
+    response.headers["Cache-Control"] = "no-store"
+    return build_intelligence_snapshot(source_id=source_id, limit=limit)
