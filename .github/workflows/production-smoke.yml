@@ -1,0 +1,31 @@
+name: Production smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: financial-intelligence-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PRODUCTION_BASE_URL: https://financial-intelligence-dashboard-z6fj.onrender.com
+      DASHBOARD_USERNAME: ${{ secrets.DASHBOARD_USERNAME }}
+      DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Run fail-closed production smoke
+        run: python scripts/production_smoke.py
