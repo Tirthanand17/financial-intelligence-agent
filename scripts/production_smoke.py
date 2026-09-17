@@ -16,6 +16,7 @@ PROTECTED_PATHS = (
     "/dashboard/readiness",
     "/dashboard/intelligence-view",
     "/dashboard/verification",
+    "/dashboard/quality-coverage",
     "/dashboard/timeline",
 )
 REQUIRED_DASHBOARD_HEADERS = {
