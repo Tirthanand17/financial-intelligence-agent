@@ -39,7 +39,9 @@ def harden_response_headers(request: Request, response: Response) -> Response:
     )
 
     if request.url.path.startswith("/dashboard"):
-        response.headers["Cache-Control"] = "no-store, max-age=0"
+        # Preserve the established dashboard API cache contract while also
+        # protecting HTML and authentication-error responses consistently.
+        response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
         response.headers["Content-Security-Policy"] = DASHBOARD_CONTENT_SECURITY_POLICY
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
