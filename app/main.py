@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 
 from app.api.dashboard import router as dashboard_router
 from app.api.dashboard_hub import router as dashboard_hub_router
+from app.api.indicator_catalog_dashboard import router as indicator_catalog_dashboard_router
 from app.api.quality_coverage_dashboard import router as quality_coverage_dashboard_router
 from app.api.readiness_dashboard import router as readiness_dashboard_router
 from app.api.routes import router
@@ -33,4 +34,5 @@ app.include_router(verification_dashboard_router)
 app.include_router(timeline_dashboard_router)
 app.include_router(readiness_dashboard_router)
 app.include_router(quality_coverage_dashboard_router)
+app.include_router(indicator_catalog_dashboard_router)
 app.include_router(dashboard_hub_router)
