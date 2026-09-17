@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.dashboard import router as dashboard_router
 from app.api.routes import router
+from app.api.verification_dashboard import router as verification_dashboard_router
 
 app = FastAPI(
     title="Financial Intelligence Agent",
@@ -17,3 +18,4 @@ def health() -> dict[str, str]:
 
 app.include_router(router)
 app.include_router(dashboard_router)
+app.include_router(verification_dashboard_router)
