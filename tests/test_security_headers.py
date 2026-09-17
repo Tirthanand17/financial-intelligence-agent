@@ -26,7 +26,7 @@ def test_dashboard_html_receives_browser_security_headers(monkeypatch) -> None:
     response = client.get("/dashboard", auth=("operator", "secret"))
 
     assert response.status_code == 200
-    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
     assert response.headers["content-security-policy"] == DASHBOARD_CONTENT_SECURITY_POLICY
     assert response.headers["x-content-type-options"] == "nosniff"
@@ -57,11 +57,11 @@ def test_dashboard_json_and_auth_failures_are_not_cacheable(monkeypatch) -> None
     unauthenticated = client.get("/dashboard")
 
     assert authenticated.status_code == 200
-    assert authenticated.headers["cache-control"] == "no-store, max-age=0"
+    assert authenticated.headers["cache-control"] == "no-store"
     assert authenticated.headers["content-security-policy"] == DASHBOARD_CONTENT_SECURITY_POLICY
 
     assert unauthenticated.status_code == 401
-    assert unauthenticated.headers["cache-control"] == "no-store, max-age=0"
+    assert unauthenticated.headers["cache-control"] == "no-store"
     assert unauthenticated.headers["pragma"] == "no-cache"
     assert unauthenticated.headers["x-frame-options"] == "DENY"
 
