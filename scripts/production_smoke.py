@@ -17,7 +17,10 @@ PROTECTED_PATHS = (
     "/dashboard/intelligence-view",
     "/dashboard/verification",
     "/dashboard/quality-coverage",
+    "/dashboard/indicator-catalog",
     "/dashboard/timeline",
+    "/dashboard/changes",
+    "/dashboard/search",
 )
 REQUIRED_DASHBOARD_HEADERS = {
     "x-content-type-options": "nosniff",
