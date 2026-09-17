@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 
 from app.api.dashboard import router as dashboard_router
+from app.api.dashboard_hub import router as dashboard_hub_router
 from app.api.readiness_dashboard import router as readiness_dashboard_router
 from app.api.routes import router
 from app.api.timeline_dashboard import router as timeline_dashboard_router
@@ -30,3 +31,4 @@ app.include_router(dashboard_router)
 app.include_router(verification_dashboard_router)
 app.include_router(timeline_dashboard_router)
 app.include_router(readiness_dashboard_router)
+app.include_router(dashboard_hub_router)
