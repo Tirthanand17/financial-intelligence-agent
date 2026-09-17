@@ -4,14 +4,41 @@ from app.claims.models import StructuredClaim
 from app.sources.registry import get_source
 
 
+# Exact normalized labels that are common document/page/contact metadata rather
+# than financial/economic facts. Keep this list intentionally narrow: a metric is
+# rejected only when its normalized label exactly matches one of these values.
 _NON_FACT_METRICS = {
     "date",
+    "email",
+    "email id",
+    "fax",
+    "fax no",
+    "fax number",
+    "gstin",
+    "last updated",
+    "page no",
+    "page number",
     "phone no",
     "phone number",
     "posted on",
     "release id",
+    "serial no",
+    "serial number",
+    "s no",
+    "s. no",
+    "sr no",
+    "sr. no",
     "scrip code",
+    "telephone",
+    "telephone no",
+    "telephone number",
+    "time",
+    "toll free",
+    "toll free no",
+    "toll free number",
     "visitor counter",
+    "website",
+    "website url",
 }
 _MONTH_HEADING_RE = re.compile(
     r"^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+\d{4}\b",
@@ -22,6 +49,13 @@ _MONTH_HEADING_RE = re.compile(
 # are not rejected merely because they contain two letters.
 _SHORT_FRAGMENT_RE = re.compile(r"^[A-Za-z](?:\s+[A-Za-z])?\.?$")
 _TIME_TOKEN_RE = re.compile(r"\b\d{1,2}:\d{2}\b")
+# Page/serial labels sometimes carry punctuation or a numeric suffix after text
+# extraction. This remains anchored to known metadata stems and does not reject
+# generic numbered financial metrics.
+_METADATA_LABEL_RE = re.compile(
+    r"^(?:page|serial|sr\.?|s\.?)\s*(?:no\.?|number)?\s*\d*$",
+    re.IGNORECASE,
+)
 
 
 def _normalized(value: str | None) -> str:
@@ -39,6 +73,9 @@ def claim_quality_rejection_reason(metric: str, evidence_text: str) -> str | Non
     """
     normalized_metric = _normalized(metric)
     if normalized_metric in _NON_FACT_METRICS:
+        return "metadata_metric"
+
+    if _METADATA_LABEL_RE.fullmatch(metric.strip()):
         return "metadata_metric"
 
     if _SHORT_FRAGMENT_RE.fullmatch(metric.strip()):
