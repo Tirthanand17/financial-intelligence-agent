@@ -33,6 +33,22 @@ def test_dashboard_requires_valid_basic_auth(monkeypatch) -> None:
     assert invalid.status_code == 401
     assert valid.status_code == 200
     assert "Private read-only operational dashboard" in valid.text
+    assert "/dashboard/intelligence-view" in valid.text
+
+
+def test_intelligence_view_requires_same_authentication(monkeypatch) -> None:
+    monkeypatch.setattr(dashboard_api, "get_settings", lambda: _settings("operator", "secret"))
+
+    unauthenticated = client.get("/dashboard/intelligence-view")
+    invalid = client.get("/dashboard/intelligence-view", auth=("operator", "wrong"))
+    valid = client.get("/dashboard/intelligence-view", auth=("operator", "secret"))
+
+    assert unauthenticated.status_code == 401
+    assert invalid.status_code == 401
+    assert valid.status_code == 200
+    assert "Intelligence Evidence View" in valid.text
+    assert "/dashboard/intelligence?" in valid.text
+    assert "Operational Dashboard" in valid.text
 
 
 def test_dashboard_status_is_secret_free_read_only_snapshot(monkeypatch) -> None:
@@ -57,8 +73,10 @@ def test_dashboard_status_is_secret_free_read_only_snapshot(monkeypatch) -> None
 
 
 def test_dashboard_has_no_write_controls() -> None:
-    text = dashboard_api.DASHBOARD_HTML.lower()
+    text = (dashboard_api.DASHBOARD_HTML + dashboard_api.INTELLIGENCE_HTML).lower()
 
     assert "--allow-write" not in text
     assert "/ingest" not in text
     assert "trust_promotion_enabled=true" not in text
+    assert "method=\"post\"" not in text
+    assert "fetch('/dashboard/intelligence?'" in text
