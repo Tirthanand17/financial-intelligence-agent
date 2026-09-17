@@ -1,14 +1,21 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from app.api.dashboard import router as dashboard_router
 from app.api.routes import router
 from app.api.verification_dashboard import router as verification_dashboard_router
+from app.security_headers import harden_response_headers
 
 app = FastAPI(
     title="Financial Intelligence Agent",
     version="0.3.0",
     description="Continuously learning financial and economic intelligence system.",
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    return harden_response_headers(request, response)
 
 
 @app.get("/health")
