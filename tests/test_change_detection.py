@@ -74,7 +74,7 @@ def test_detects_numeric_change_and_counts_unchanged_without_mutation(monkeypatc
     assert result["summary"]["unchanged_confirmations"] == 1
     event = result["changes"][0]
     assert event["change_kind"] == "numeric_value_change"
-    assert event["numeric_delta"] == "-0.50"
+    assert Decimal(event["numeric_delta"]) == Decimal("-0.50")
     assert event["direction"] == "decrease"
     assert event["previous"]["claim_id"] == "one"
     assert event["current"]["claim_id"] == "two"
