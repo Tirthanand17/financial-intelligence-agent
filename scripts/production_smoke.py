@@ -17,6 +17,7 @@ PROTECTED_PATHS = (
     "/dashboard/intelligence-view",
     "/dashboard/verification",
     "/dashboard/quality-coverage",
+    "/dashboard/quality-scorecards",
     "/dashboard/indicator-catalog",
     "/dashboard/timeline",
     "/dashboard/changes",
