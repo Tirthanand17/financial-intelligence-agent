@@ -17,6 +17,8 @@ jobs:
   scheduled-cycle:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
     env:
       PYTHONPATH: .
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -99,3 +101,69 @@ jobs:
         run: |
           python scripts/phase17_production_readiness.py | tee /tmp/post-readiness.log
           grep -q '^FINAL: PASS-READ-ONLY' /tmp/post-readiness.log
+
+  operational-failure-alert:
+    name: Record operational failure alert
+    needs: scheduled-cycle
+    if: ${{ always() && needs.scheduled-cycle.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or update deduplicated incident issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = '[Operational Alert] Scheduled financial-intelligence cycle failed';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const timestamp = new Date().toISOString();
+            const marker = '<!-- financial-intelligence-scheduled-failure -->';
+            const event = context.eventName;
+            const ref = context.ref;
+            const sha = context.sha;
+            const body = [
+              marker,
+              'The bounded scheduled operational cycle failed and requires operator review.',
+              '',
+              `- detected_at_utc: ${timestamp}`,
+              `- workflow_run: ${runUrl}`,
+              `- event: ${event}`,
+              `- ref: ${ref}`,
+              `- commit: ${sha}`,
+              `- run_attempt: ${context.runAttempt}`,
+              '',
+              'No provider credentials, raw exception payloads, evidence bytes, or private object keys are copied into this alert.',
+              'Do not increase cadence or bypass readiness checks to recover. Review the failed workflow and preserve the fail-closed state.'
+            ].join('\n');
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100
+            });
+            const existing = issues.find(
+              issue => !issue.pull_request && issue.title === title && (issue.body || '').includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body
+              });
+              core.info(`Updated operational alert issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body
+              });
+              core.info(`Created operational alert issue #${created.data.number}`);
+            }
