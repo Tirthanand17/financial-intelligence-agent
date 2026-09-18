@@ -23,6 +23,7 @@ PROTECTED_PATHS = (
     "/dashboard/search",
     "/dashboard/document",
     "/dashboard/conflicts",
+    "/dashboard/provenance",
 )
 REQUIRED_DASHBOARD_HEADERS = {
     "x-content-type-options": "nosniff",
