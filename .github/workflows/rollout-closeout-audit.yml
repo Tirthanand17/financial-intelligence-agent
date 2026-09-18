@@ -48,27 +48,22 @@ jobs:
           pip check
 
       - name: Capture scheduled-run history
+        id: history
         uses: actions/github-script@v7
         with:
           script: |
-            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+            const response = await github.rest.actions.listWorkflowRuns({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'operational-scheduled.yml',
               event: 'schedule',
-              per_page: 100
+              per_page: 30
             });
-            const compact = runs.slice(0, 1000).map((row) => ({
-              id: row.id,
-              event: row.event,
-              created_at: row.created_at,
-              status: row.status,
-              conclusion: row.conclusion,
-              html_url: row.html_url
-            }));
-            core.exportVariable('ROLLOUT_RUNS_JSON', JSON.stringify(compact));
+            core.setOutput('runs', JSON.stringify(response.data.workflow_runs));
 
       - name: Audit seven scheduled observation days
+        env:
+          ROLLOUT_RUNS_JSON: ${{ steps.history.outputs.runs }}
         run: python scripts/rollout_closeout_history.py
 
       - name: Require explicit cloud configuration
