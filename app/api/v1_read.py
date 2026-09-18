@@ -40,6 +40,7 @@ def api_v1_meta(response: Response) -> dict[str, object]:
             "conflicts": "/api/v1/conflicts",
             "provenance": "/api/v1/provenance/{document_id}",
             "quality_scorecards": "/api/v1/quality/scorecards",
+            "incidents": "/api/v1/incidents",
             "claim_export_json": "/api/v1/export/claims.json",
             "claim_export_csv": "/api/v1/export/claims.csv",
         },
