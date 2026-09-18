@@ -15,6 +15,7 @@ class ExpansionCandidate:
     documentation_url: str
     api_standard: str
     adapter_implemented: bool = False
+    bounded_query_contract_validated: bool = False
     temporal_policy_validated: bool = False
     exact_byte_reconciliation_validated: bool = False
     bounded_live_canary_passed: bool = False
@@ -30,6 +31,9 @@ INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
         api_url="https://api.worldbank.org/v2/",
         documentation_url="https://datahelpdesk.worldbank.org/knowledgebase/articles/889392",
         api_standard="World Bank Indicators API v2",
+        adapter_implemented=True,
+        bounded_query_contract_validated=True,
+        temporal_policy_validated=True,
     ),
     ExpansionCandidate(
         candidate_id="imf-sdmx-v2",
@@ -60,6 +64,7 @@ def _candidate_snapshot(candidate: ExpansionCandidate) -> dict[str, object]:
         "candidate_uses_https": candidate.api_url.startswith("https://"),
         "candidate_host_allowlisted": host_allowlisted,
         "source_specific_adapter_implemented": candidate.adapter_implemented,
+        "bounded_query_contract_validated": candidate.bounded_query_contract_validated,
         "explicit_temporal_policy_validated": candidate.temporal_policy_validated,
         "exact_byte_reconciliation_validated": candidate.exact_byte_reconciliation_validated,
         "bounded_live_canary_passed": candidate.bounded_live_canary_passed,
