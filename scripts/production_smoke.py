@@ -45,6 +45,16 @@ def _normalized_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return {str(key).lower(): str(value) for key, value in headers.items()}
 
 
+def _valid_request_id(value: str | None) -> bool:
+    if value is None or len(value) != 32:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
 def validate_health(response: SmokeResponse) -> list[str]:
     errors: list[str] = []
     headers = _normalized_headers(response.headers)
@@ -58,6 +68,8 @@ def validate_health(response: SmokeResponse) -> list[str]:
         errors.append("health_payload_invalid")
     if headers.get("x-content-type-options") != "nosniff":
         errors.append("health_missing_nosniff")
+    if not _valid_request_id(headers.get("x-request-id")):
+        errors.append("health_request_id_invalid")
     return errors
 
 
@@ -74,6 +86,8 @@ def validate_dashboard_response(response: SmokeResponse, *, authenticated: bool)
     for key, expected in REQUIRED_DASHBOARD_HEADERS.items():
         if headers.get(key) != expected:
             errors.append(f"header_{key}_invalid")
+    if not _valid_request_id(headers.get("x-request-id")):
+        errors.append("request_id_invalid")
     if not authenticated and "basic" not in headers.get("www-authenticate", "").lower():
         errors.append("missing_basic_auth_challenge")
     return errors
