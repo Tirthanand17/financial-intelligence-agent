@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 
+from app.api.capacity_headroom_dashboard import router as capacity_headroom_dashboard_router
 from app.api.change_detection_dashboard import router as change_detection_dashboard_router
 from app.api.conflict_investigation_dashboard import router as conflict_investigation_dashboard_router
 from app.api.dashboard import router as dashboard_router
@@ -52,6 +53,7 @@ app.include_router(dashboard_router)
 app.include_router(verification_dashboard_router)
 app.include_router(timeline_dashboard_router)
 app.include_router(readiness_dashboard_router)
+app.include_router(capacity_headroom_dashboard_router)
 app.include_router(quality_coverage_dashboard_router)
 app.include_router(indicator_catalog_dashboard_router)
 app.include_router(change_detection_dashboard_router)
