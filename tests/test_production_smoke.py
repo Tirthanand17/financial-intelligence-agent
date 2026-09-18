@@ -7,20 +7,12 @@ from scripts.production_smoke import (
 
 
 def test_health_contract_accepts_expected_response() -> None:
-    response = SmokeResponse(
-        status=200,
-        headers={"X-Content-Type-Options": "nosniff"},
-        body=b'{"status":"ok"}',
-    )
+    response = SmokeResponse(status=200, headers={"X-Content-Type-Options": "nosniff"}, body=b'{"status":"ok"}')
     assert validate_health(response) == []
 
 
 def test_health_contract_fails_closed_on_bad_payload() -> None:
-    response = SmokeResponse(
-        status=200,
-        headers={"X-Content-Type-Options": "nosniff"},
-        body=b'{"status":"wrong"}',
-    )
+    response = SmokeResponse(status=200, headers={"X-Content-Type-Options": "nosniff"}, body=b'{"status":"wrong"}')
     assert "health_payload_invalid" in validate_health(response)
 
 
@@ -68,5 +60,6 @@ def test_production_smoke_covers_current_read_only_workspace_pages() -> None:
         "/dashboard/changes",
         "/dashboard/search",
         "/dashboard/document",
+        "/dashboard/conflicts",
     }
     assert set(PROTECTED_PATHS) == required
