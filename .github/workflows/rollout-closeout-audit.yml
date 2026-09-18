@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: financial-intelligence-rollout-closeout-audit
@@ -15,6 +14,9 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     env:
       PYTHONPATH: .
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -33,88 +35,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Audit seven scheduled observation days
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const workflow_id = 'operational-scheduled.yml';
-            const requiredDates = [
-              '2026-09-14',
-              '2026-09-15',
-              '2026-09-16',
-              '2026-09-17',
-              '2026-09-18',
-              '2026-09-19',
-              '2026-09-20'
-            ];
-
-            function istDate(iso) {
-              const parts = new Intl.DateTimeFormat('en-CA', {
-                timeZone: 'Asia/Kolkata',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-              }).formatToParts(new Date(iso));
-              const values = Object.fromEntries(parts.map(p => [p.type, p.value]));
-              return `${values.year}-${values.month}-${values.day}`;
-            }
-
-            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              owner,
-              repo,
-              workflow_id,
-              event: 'schedule',
-              per_page: 100
-            });
-
-            const rows = [];
-            const blockers = [];
-            for (const date of requiredDates) {
-              const daily = runs
-                .filter(run => istDate(run.created_at) === date)
-                .sort((a, b) => a.created_at.localeCompare(b.created_at));
-              const conclusions = daily.map(run => run.conclusion || run.status);
-              const runLinks = daily.map(run => `[${run.id}](${run.html_url})`).join(', ');
-              const allSuccessful = daily.length > 0 && daily.every(run => run.conclusion === 'success');
-
-              rows.push([
-                {data: date, header: false},
-                allSuccessful ? 'PASS' : 'BLOCKED',
-                conclusions.join(', ') || 'missing',
-                runLinks || '-'
-              ]);
-
-              if (!daily.length) {
-                blockers.push(`${date}: missing scheduled run`);
-              } else if (!allSuccessful) {
-                blockers.push(`${date}: non-success scheduled run (${conclusions.join(', ')})`);
-              }
-            }
-
-            await core.summary
-              .addHeading('Initial scheduler rollout observation history')
-              .addTable([
-                [
-                  {data: 'IST date', header: true},
-                  {data: 'Status', header: true},
-                  {data: 'Conclusion(s)', header: true},
-                  {data: 'Run(s)', header: true}
-                ],
-                ...rows
-              ])
-              .addRaw('\nThis audit is read-only and does not change cadence, sources, gates, trust, evidence, or storage.\n')
-              .write();
-
-            if (blockers.length) {
-              core.setFailed(`Rollout closeout blocked: ${blockers.join('; ')}`);
-            }
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: '.python-version'
+          python-version: '3.11'
           cache: pip
 
       - name: Install locked dependencies
@@ -122,6 +46,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip check
+
+      - name: Capture scheduled-run history
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'operational-scheduled.yml',
+              event: 'schedule',
+              per_page: 30
+            });
+            core.exportVariable('ROLLOUT_RUNS_JSON', JSON.stringify(response.data.workflow_runs));
+
+      - name: Audit seven scheduled observation days
+        run: python scripts/rollout_closeout_history.py
 
       - name: Require explicit cloud configuration
         shell: bash
