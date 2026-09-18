@@ -48,7 +48,7 @@ jobs:
           pip check
 
       - name: Capture scheduled-run history
-        id: rollout-history
+        id: rollout_history
         uses: actions/github-script@v7
         with:
           result-encoding: string
@@ -72,7 +72,7 @@ jobs:
 
       - name: Audit seven scheduled observation days
         env:
-          ROLLOUT_RUNS_JSON: ${{ steps.rollout-history.outputs.result }}
+          ROLLOUT_RUNS_JSON: ${{ steps.rollout_history.outputs.result }}
         run: python scripts/rollout_closeout_history.py
 
       - name: Require explicit cloud configuration
