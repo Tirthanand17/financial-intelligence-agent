@@ -55,6 +55,7 @@ def test_production_smoke_covers_current_read_only_workspace_pages() -> None:
         "/dashboard/intelligence-view",
         "/dashboard/verification",
         "/dashboard/quality-coverage",
+        "/dashboard/quality-scorecards",
         "/dashboard/indicator-catalog",
         "/dashboard/timeline",
         "/dashboard/changes",
