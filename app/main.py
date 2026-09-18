@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 
 from app.api.change_detection_dashboard import router as change_detection_dashboard_router
+from app.api.conflict_investigation_dashboard import router as conflict_investigation_dashboard_router
 from app.api.dashboard import router as dashboard_router
 from app.api.dashboard_hub import router as dashboard_hub_router
 from app.api.document_detail_dashboard import router as document_detail_dashboard_router
@@ -41,4 +42,5 @@ app.include_router(indicator_catalog_dashboard_router)
 app.include_router(change_detection_dashboard_router)
 app.include_router(evidence_search_dashboard_router)
 app.include_router(document_detail_dashboard_router)
+app.include_router(conflict_investigation_dashboard_router)
 app.include_router(dashboard_hub_router)
