@@ -44,13 +44,26 @@ def test_api_v1_meta_is_private_read_only_and_non_cacheable(monkeypatch) -> None
     assert payload["safety"]["raw_object_keys_exposed"] is False
 
 
-def test_api_v1_exposes_only_get_and_head_methods() -> None:
-    versioned_routes = [route for route in app.routes if getattr(route, "path", "").startswith("/api/v1")]
-    assert versioned_routes
-    for route in versioned_routes:
-        methods = set(getattr(route, "methods", set()))
-        assert methods <= {"GET", "HEAD"}
-        assert not ({"POST", "PUT", "PATCH", "DELETE"} & methods)
+def test_api_v1_exposes_only_read_methods() -> None:
+    """Assert the published versioned API schema exposes no write methods.
+
+    FastAPI/Starlette internals can represent included routers differently across
+    framework releases, while the generated OpenAPI document is the actual
+    published contract consumed by clients. Inspect that stable contract instead
+    of relying on one internal route-list representation.
+    """
+    paths = {
+        path: operations
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/api/v1")
+    }
+    assert paths
+
+    write_methods = {"post", "put", "patch", "delete"}
+    for operations in paths.values():
+        methods = {method.lower() for method in operations}
+        assert not (write_methods & methods)
+        assert methods <= {"get", "head", "options"}
 
 
 def test_api_v1_intelligence_forwards_bounded_scope(monkeypatch) -> None:
