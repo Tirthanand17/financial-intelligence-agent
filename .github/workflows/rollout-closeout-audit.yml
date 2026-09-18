@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: financial-intelligence-rollout-closeout-audit
@@ -14,9 +15,6 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
     env:
       PYTHONPATH: .
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -38,8 +36,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version-file: '.python-version'
           cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Install locked dependencies
         run: |
@@ -47,20 +46,9 @@ jobs:
           pip install -r requirements.txt
           pip check
 
-      - name: Capture scheduled-run history
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const response = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'operational-scheduled.yml',
-              event: 'schedule',
-              per_page: 30
-            });
-            core.exportVariable('ROLLOUT_RUNS_JSON', JSON.stringify(response.data.workflow_runs));
-
       - name: Audit seven scheduled observation days
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/rollout_closeout_history.py
 
       - name: Require explicit cloud configuration
