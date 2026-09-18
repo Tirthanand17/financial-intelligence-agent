@@ -16,17 +16,18 @@ def _script_text() -> str:
 def test_rollout_closeout_audit_is_manual_only_and_read_only() -> None:
     text = _workflow_text()
 
-    assert 'workflow_dispatch: {}' in text
+    assert 'workflow_dispatch:' in text
     assert '\n  schedule:' not in text
     assert '--allow-write' not in text
     assert 'SOURCE_MONITORING_ENABLED: "true"' not in text
     assert 'SOURCE_AUTO_INGEST_ENABLED: "true"' not in text
     assert 'TRUST_PROMOTION_ENABLED: "true"' not in text
-    assert 'python scripts/rollout_closeout_history.py' in text
+    assert 'python scripts/rollout_closeout_history.py /tmp/rollout-scheduled-runs.json' in text
 
 
 def test_rollout_closeout_requires_all_seven_observation_dates() -> None:
-    text = _script_text()
+    script = _script_text()
+    workflow = _workflow_text()
 
     for date in (
         '2026-09-14',
@@ -37,14 +38,14 @@ def test_rollout_closeout_requires_all_seven_observation_dates() -> None:
         '2026-09-19',
         '2026-09-20',
     ):
-        assert f'"{date}"' in text
+        assert f'"{date}"' in script
 
-    assert '"event": "schedule"' in text
-    assert 'row.get("conclusion") == "success"' in text
-    assert 'missing scheduled run' in text
-    assert 'non-success scheduled run' in text
-    assert 'FINAL: ROLLOUT-CLOSEOUT-BLOCKED' in text
-    assert 'FINAL: ROLLOUT-HISTORY-PASS' in text
+    assert "event: 'schedule'" in workflow
+    assert 'row.get("conclusion") == "success"' in script
+    assert 'missing scheduled run' in script
+    assert 'non-success scheduled run' in script
+    assert 'FINAL: ROLLOUT-CLOSEOUT-BLOCKED' in script
+    assert 'FINAL: ROLLOUT-HISTORY-PASS' in script
 
 
 def test_rollout_closeout_rechecks_current_fail_closed_readiness() -> None:
@@ -66,5 +67,8 @@ def test_rollout_closeout_permissions_are_observation_only() -> None:
     assert 'contents: write' not in text
     assert 'issues: write' not in text
     assert 'actions: write' not in text
-    assert 'GH_TOKEN: ${{ github.token }}' in text
+    assert 'uses: actions/github-script@v7' in text
+    assert 'GH_TOKEN:' not in text
     assert 'GITHUB_TOKEN:' not in text
+    assert 'github.token' not in text
+    assert 'secrets.GITHUB_TOKEN' not in text
