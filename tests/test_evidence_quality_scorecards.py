@@ -21,6 +21,14 @@ def _session_factory():
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
+def _contains_exact_key(value: object, key: str) -> bool:
+    if isinstance(value, dict):
+        return key in value or any(_contains_exact_key(child, key) for child in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_exact_key(child, key) for child in value)
+    return False
+
+
 def test_scorecards_report_dimensions_without_composite_truth_score(monkeypatch) -> None:
     Session = _session_factory()
     with Session() as session:
@@ -96,7 +104,7 @@ def test_scorecards_report_dimensions_without_composite_truth_score(monkeypatch)
     assert result["interpretation"]["truth_probability"] is None
     assert result["interpretation"]["ranking"] is False
     assert result["safety"]["exposes_object_keys"] is False
-    assert "object_key" not in str(result)
+    assert not _contains_exact_key(result, "object_key")
 
 
 def test_scorecards_keep_unmapped_indicator_informational_not_invalid(monkeypatch) -> None:
