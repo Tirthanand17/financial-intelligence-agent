@@ -71,6 +71,7 @@ def test_production_smoke_covers_current_read_only_workspace_pages() -> None:
         "/dashboard",
         "/dashboard/readiness",
         "/dashboard/capacity-plan",
+        "/dashboard/source-expansion",
         "/dashboard/incidents",
         "/dashboard/intelligence-view",
         "/dashboard/digest",
