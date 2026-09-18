@@ -2,7 +2,9 @@
 
 ## Purpose
 
-The production scheduler was approved for an initial seven-day observation window before any cadence increase or new production source activation. This manual audit workflow turns that closeout into a reproducible fail-closed check rather than a visual/manual guess.
+The production scheduler was approved for an initial seven-day observation window before any cadence increase or new production source activation. This manual audit turns that closeout into a reproducible fail-closed check rather than a visual/manual guess.
+
+The GitHub workflow is intentionally thin. Historical run analysis lives in the testable standard-library script `scripts/rollout_closeout_history.py`, while the workflow supplies only the repository-scoped GitHub token and the existing cloud-readiness configuration.
 
 ## Observation window
 
@@ -16,9 +18,11 @@ The required Asia/Kolkata calendar dates are:
 - 2026-09-19
 - 2026-09-20
 
-The workflow inspects only GitHub Actions runs whose event is `schedule`. A required day blocks closeout when no scheduled run exists or when any scheduled run for that IST date is non-successful.
+The history script requests at most 100 runs for the fixed `operational-scheduled.yml` workflow and considers only runs whose event is `schedule`. It converts each run timestamp to the Asia/Kolkata calendar date.
 
-Running the audit before all seven dates have a successful scheduled run therefore fails closed automatically.
+A required day blocks closeout when no scheduled run exists or when any scheduled run found for that IST date is non-successful. Manual `workflow_dispatch` runs do not satisfy the seven-day requirement.
+
+Running the audit before all seven dates have successful scheduled history therefore fails closed automatically.
 
 ## Current-state validation
 
@@ -50,6 +54,8 @@ Any of those changes still require their own reviewed milestone.
 
 ## Safety and permissions
 
-The workflow is `workflow_dispatch` only. It has `contents: read` and `actions: read` permissions, performs no ingestion/write command, and does not change repository issues, source configuration, cloud data, or deployment configuration.
+The workflow is `workflow_dispatch` only and uses GitHub `read-all` token permissions. It performs no ingestion/write command and does not change repository issues, source configuration, cloud data, or deployment configuration.
 
-The GitHub step summary records the seven IST dates, pass/block status, conclusions, and links to the corresponding scheduled runs so the closeout remains auditable.
+The history script rejects any unexpected GitHub API base, repository shape, or workflow filename and never prints the token. It writes only secret-free run metadata to the GitHub step summary.
+
+The step summary records the seven IST dates, pass/block status, conclusions, and links to corresponding scheduled runs so the closeout remains auditable.
