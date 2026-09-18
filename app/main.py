@@ -5,6 +5,8 @@ from app.api.conflict_investigation_dashboard import router as conflict_investig
 from app.api.dashboard import router as dashboard_router
 from app.api.dashboard_hub import router as dashboard_hub_router
 from app.api.document_detail_dashboard import router as document_detail_dashboard_router
+from app.api.evidence_export import api_router as evidence_export_api_router
+from app.api.evidence_export import dashboard_router as evidence_export_dashboard_router
 from app.api.evidence_quality_scorecards_dashboard import router as evidence_quality_scorecards_dashboard_router
 from app.api.evidence_search_dashboard import router as evidence_search_dashboard_router
 from app.api.indicator_catalog_dashboard import router as indicator_catalog_dashboard_router
@@ -37,6 +39,7 @@ def health() -> dict[str, str]:
 
 app.include_router(router)
 app.include_router(api_v1_read_router)
+app.include_router(evidence_export_api_router)
 app.include_router(dashboard_router)
 app.include_router(verification_dashboard_router)
 app.include_router(timeline_dashboard_router)
@@ -49,4 +52,5 @@ app.include_router(document_detail_dashboard_router)
 app.include_router(conflict_investigation_dashboard_router)
 app.include_router(provenance_graph_dashboard_router)
 app.include_router(evidence_quality_scorecards_dashboard_router)
+app.include_router(evidence_export_dashboard_router)
 app.include_router(dashboard_hub_router)
