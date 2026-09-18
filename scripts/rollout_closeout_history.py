@@ -82,8 +82,7 @@ def audit_scheduled_runs(runs: Iterable[dict[str, object]]) -> tuple[list[AuditR
     return rows, blockers
 
 
-def _load_runs(path: Path) -> list[dict[str, object]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+def _validate_runs_payload(payload: object) -> list[dict[str, object]]:
     if not isinstance(payload, list):
         raise ValueError("Captured workflow-run payload must be a JSON list")
     if len(payload) > 1000:
@@ -94,6 +93,21 @@ def _load_runs(path: Path) -> list[dict[str, object]]:
             raise ValueError("Captured workflow-run payload contains a non-object item")
         rows.append(item)
     return rows
+
+
+def _load_runs() -> list[dict[str, object]]:
+    if len(sys.argv) == 2:
+        payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+        return _validate_runs_payload(payload)
+    if len(sys.argv) > 2:
+        raise ValueError("Expected at most one captured workflow-runs JSON path")
+
+    raw = os.environ.get("ROLLOUT_RUNS_JSON", "").strip()
+    if not raw:
+        raise ValueError("ROLLOUT_RUNS_JSON is missing")
+    if len(raw.encode("utf-8")) > 1_000_000:
+        raise ValueError("Captured workflow-run JSON exceeds 1 MiB safety bound")
+    return _validate_runs_payload(json.loads(raw))
 
 
 def _markdown(rows: list[AuditRow], blockers: list[str]) -> str:
@@ -125,13 +139,8 @@ def _markdown(rows: list[AuditRow], blockers: list[str]) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("BLOCKED: expected one captured workflow-runs JSON path", file=sys.stderr)
-        return 2
-
-    input_path = Path(sys.argv[1])
     try:
-        runs = _load_runs(input_path)
+        runs = _load_runs()
         rows, blockers = audit_scheduled_runs(runs)
     except Exception as exc:
         print(
