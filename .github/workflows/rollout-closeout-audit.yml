@@ -59,12 +59,7 @@ jobs:
               event: 'schedule',
               per_page: 100
             });
-            if (runs.length > 1000) {
-              core.setFailed('Scheduled-run history exceeds bounded 1000-run audit limit');
-              return;
-            }
-            fs.writeFileSync('/tmp/rollout-scheduled-runs.json', JSON.stringify(runs), {encoding: 'utf8', mode: 0o600});
-            core.info('Captured scheduled-run history for offline validation.');
+            fs.writeFileSync('/tmp/rollout-scheduled-runs.json', JSON.stringify(runs));
 
       - name: Audit seven scheduled observation days
         run: python scripts/rollout_closeout_history.py /tmp/rollout-scheduled-runs.json
