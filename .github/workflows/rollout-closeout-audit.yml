@@ -47,10 +47,11 @@ jobs:
           pip install -r requirements.txt
           pip check
 
-      - name: Probe scheduled-run access
+      - name: Capture scheduled-run history
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -58,10 +59,15 @@ jobs:
               event: 'schedule',
               per_page: 100
             });
-            core.info(`scheduled runs visible: ${runs.length}`);
+            if (runs.length > 1000) {
+              core.setFailed('Scheduled-run history exceeds bounded 1000-run audit limit');
+              return;
+            }
+            fs.writeFileSync('/tmp/rollout-scheduled-runs.json', JSON.stringify(runs), {encoding: 'utf8', mode: 0o600});
+            core.info('Captured scheduled-run history for offline validation.');
 
-      - name: Audit script parser probe
-        run: python -m py_compile scripts/rollout_closeout_history.py
+      - name: Audit seven scheduled observation days
+        run: python scripts/rollout_closeout_history.py /tmp/rollout-scheduled-runs.json
 
       - name: Require explicit cloud configuration
         shell: bash
@@ -85,5 +91,5 @@ jobs:
           python scripts/phase17_production_readiness.py | tee /tmp/rollout-closeout-readiness.log
           grep -q '^FINAL: PASS-READ-ONLY' /tmp/rollout-closeout-readiness.log
 
-      - name: Validation baseline
-        run: echo 'rollout-closeout-workflow-valid'
+      - name: Closeout audit result
+        run: echo 'FINAL: ROLLOUT-CLOSEOUT-READY'
