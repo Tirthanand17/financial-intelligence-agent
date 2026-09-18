@@ -33,8 +33,12 @@ def test_international_candidates_are_blocked_and_do_not_change_live_monitors() 
     assert world_bank["checks"]["source_specific_adapter_implemented"] is True
     assert world_bank["checks"]["bounded_query_contract_validated"] is True
     assert world_bank["checks"]["explicit_temporal_policy_validated"] is True
+    assert world_bank["checks"]["persistence_path_implemented"] is True
+    assert world_bank["checks"]["offline_exact_byte_contract_validated"] is True
     assert world_bank["checks"]["exact_byte_reconciliation_validated"] is False
     assert world_bank["checks"]["bounded_live_canary_passed"] is False
+    assert "persistence_path_implemented" not in world_bank["activation_blockers"]
+    assert "offline_exact_byte_contract_validated" not in world_bank["activation_blockers"]
     assert "exact_byte_reconciliation_validated" in world_bank["activation_blockers"]
     assert "bounded_live_canary_passed" in world_bank["activation_blockers"]
     assert world_bank["activation_ready"] is False
@@ -48,6 +52,8 @@ def test_international_candidates_are_blocked_and_do_not_change_live_monitors() 
     assert imf["checks"]["source_specific_adapter_implemented"] is False
     assert imf["checks"]["bounded_query_contract_validated"] is False
     assert imf["checks"]["explicit_temporal_policy_validated"] is False
+    assert imf["checks"]["persistence_path_implemented"] is False
+    assert imf["checks"]["offline_exact_byte_contract_validated"] is False
     assert "candidate_host_allowlisted" in imf["activation_blockers"]
     assert imf["activation_ready"] is False
 
