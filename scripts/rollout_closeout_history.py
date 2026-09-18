@@ -145,12 +145,12 @@ def _markdown(rows: list[AuditRow], blockers: list[str]) -> str:
 
 def main() -> int:
     repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    token = os.environ.get("GH_TOKEN", "").strip()
     if not repository:
         print("BLOCKED: GITHUB_REPOSITORY is missing", file=sys.stderr)
         return 2
     if not token:
-        print("BLOCKED: GITHUB_TOKEN is missing", file=sys.stderr)
+        print("BLOCKED: GH_TOKEN is missing", file=sys.stderr)
         return 2
 
     try:
