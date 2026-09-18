@@ -17,6 +17,7 @@ from app.api.routes import router
 from app.api.timeline_dashboard import router as timeline_dashboard_router
 from app.api.v1_read import router as api_v1_read_router
 from app.api.verification_dashboard import router as verification_dashboard_router
+from app.observability import observe_http_request
 from app.security_headers import harden_response_headers
 
 app = FastAPI(
@@ -30,6 +31,11 @@ app = FastAPI(
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     return harden_response_headers(request, response)
+
+
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    return await observe_http_request(request, call_next)
 
 
 @app.get("/health")
