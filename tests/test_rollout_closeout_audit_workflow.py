@@ -22,13 +22,12 @@ def test_rollout_closeout_audit_is_manual_only_and_read_only() -> None:
     assert 'SOURCE_MONITORING_ENABLED: "true"' not in text
     assert 'SOURCE_AUTO_INGEST_ENABLED: "true"' not in text
     assert 'TRUST_PROMOTION_ENABLED: "true"' not in text
-    assert "core.exportVariable('ROLLOUT_RUNS_JSON'" in text
     assert 'run: python scripts/rollout_closeout_history.py' in text
+    assert 'uses: actions/github-script@v7' not in text
 
 
 def test_rollout_closeout_requires_all_seven_observation_dates() -> None:
     script = _script_text()
-    workflow = _workflow_text()
 
     for date in (
         '2026-09-14',
@@ -41,7 +40,8 @@ def test_rollout_closeout_requires_all_seven_observation_dates() -> None:
     ):
         assert f'"{date}"' in script
 
-    assert "event: 'schedule'" in workflow
+    assert 'WORKFLOW_FILE = "operational-scheduled.yml"' in script
+    assert '"?event=schedule&per_page=30"' in script
     assert 'row.get("conclusion") == "success"' in script
     assert 'missing scheduled run' in script
     assert 'non-success scheduled run' in script
@@ -68,8 +68,18 @@ def test_rollout_closeout_permissions_are_observation_only() -> None:
     assert 'contents: write' not in text
     assert 'issues: write' not in text
     assert 'actions: write' not in text
-    assert 'uses: actions/github-script@v7' in text
-    assert 'GH_TOKEN:' not in text
-    assert 'GITHUB_TOKEN:' not in text
-    assert 'github.token' not in text
+    assert 'GITHUB_TOKEN: ${{ github.token }}' in text
     assert 'secrets.GITHUB_TOKEN' not in text
+
+
+def test_rollout_history_fetch_is_bounded_and_read_only() -> None:
+    script = _script_text()
+
+    assert 'urllib.request.Request' in script
+    assert 'urllib.request.urlopen(request, timeout=20)' in script
+    assert 'per_page=30' in script
+    assert 'response.read(1_000_001)' in script
+    assert '"Authorization": f"Bearer {token}"' in script
+    assert 'POST' not in script
+    assert 'DELETE' not in script
+    assert 'PATCH' not in script
