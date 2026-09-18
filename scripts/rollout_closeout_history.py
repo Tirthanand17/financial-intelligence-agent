@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 
@@ -21,7 +19,6 @@ REQUIRED_DATES = (
     "2026-09-19",
     "2026-09-20",
 )
-WORKFLOW_FILE = "operational-scheduled.yml"
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -55,13 +52,18 @@ def audit_scheduled_runs(runs: Iterable[dict[str, object]]) -> tuple[list[AuditR
             ],
             key=lambda row: str(row["created_at"]),
         )
-        conclusions = tuple(str(row.get("conclusion") or row.get("status") or "unknown") for row in daily)
+        conclusions = tuple(
+            str(row.get("conclusion") or row.get("status") or "unknown")
+            for row in daily
+        )
         run_links = tuple(
             (int(row["id"]), str(row.get("html_url") or ""))
             for row in daily
             if isinstance(row.get("id"), int)
         )
-        all_successful = bool(daily) and all(row.get("conclusion") == "success" for row in daily)
+        all_successful = bool(daily) and all(
+            row.get("conclusion") == "success" for row in daily
+        )
         rows.append(
             AuditRow(
                 date=required_date,
@@ -80,39 +82,18 @@ def audit_scheduled_runs(runs: Iterable[dict[str, object]]) -> tuple[list[AuditR
     return rows, blockers
 
 
-def _fetch_schedule_runs(*, repository: str, token: str) -> list[dict[str, object]]:
-    if "/" not in repository:
-        raise ValueError("GITHUB_REPOSITORY must be owner/name")
-    owner, repo = repository.split("/", 1)
-    runs: list[dict[str, object]] = []
-
-    for page in range(1, 11):
-        query = urlencode({"event": "schedule", "per_page": 100, "page": page})
-        url = (
-            f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/"
-            f"{WORKFLOW_FILE}/runs?{query}"
-        )
-        request = Request(
-            url,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "financial-intelligence-rollout-closeout-audit",
-            },
-        )
-        with urlopen(request, timeout=30) as response:  # noqa: S310 - fixed GitHub host
-            payload = json.load(response)
-        page_runs = payload.get("workflow_runs")
-        if not isinstance(page_runs, list):
-            raise RuntimeError("Unexpected GitHub Actions run-list response")
-        runs.extend(row for row in page_runs if isinstance(row, dict))
-        if len(page_runs) < 100:
-            break
-    else:
-        raise RuntimeError("Scheduled-run history exceeded bounded 1000-run audit limit")
-
-    return runs
+def _load_runs(path: Path) -> list[dict[str, object]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError("Captured workflow-run payload must be a JSON list")
+    if len(payload) > 1000:
+        raise ValueError("Captured workflow-run payload exceeds bounded 1000-run audit limit")
+    rows: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("Captured workflow-run payload contains a non-object item")
+        rows.append(item)
+    return rows
 
 
 def _markdown(rows: list[AuditRow], blockers: list[str]) -> str:
@@ -144,20 +125,19 @@ def _markdown(rows: list[AuditRow], blockers: list[str]) -> str:
 
 
 def main() -> int:
-    repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    token = os.environ.get("GH_TOKEN", "").strip()
-    if not repository:
-        print("BLOCKED: GITHUB_REPOSITORY is missing", file=sys.stderr)
-        return 2
-    if not token:
-        print("BLOCKED: GH_TOKEN is missing", file=sys.stderr)
+    if len(sys.argv) != 2:
+        print("BLOCKED: expected one captured workflow-runs JSON path", file=sys.stderr)
         return 2
 
+    input_path = Path(sys.argv[1])
     try:
-        runs = _fetch_schedule_runs(repository=repository, token=token)
+        runs = _load_runs(input_path)
         rows, blockers = audit_scheduled_runs(runs)
     except Exception as exc:
-        print(f"BLOCKED: rollout history could not be audited ({type(exc).__name__})", file=sys.stderr)
+        print(
+            f"BLOCKED: rollout history could not be audited ({type(exc).__name__})",
+            file=sys.stderr,
+        )
         return 2
 
     summary = _markdown(rows, blockers)
