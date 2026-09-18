@@ -19,24 +19,12 @@ def test_rollout_closeout_audit_is_manual_only_and_read_only() -> None:
     assert 'TRUST_PROMOTION_ENABLED: "true"' not in text
 
 
-def test_rollout_closeout_requires_all_seven_observation_dates() -> None:
+def test_rollout_closeout_delegates_history_validation_to_bounded_script() -> None:
     text = _text()
 
-    for date in (
-        '2026-09-14',
-        '2026-09-15',
-        '2026-09-16',
-        '2026-09-17',
-        '2026-09-18',
-        '2026-09-19',
-        '2026-09-20',
-    ):
-        assert f"'{date}'" in text
-
-    assert "event: 'schedule'" in text
-    assert "run.conclusion === 'success'" in text
-    assert 'missing scheduled run' in text
-    assert 'non-success scheduled run' in text
+    assert 'python scripts/rollout_closeout_history.py' in text
+    assert 'GITHUB_TOKEN: ${{ github.token }}' in text
+    assert 'permissions: read-all' in text
 
 
 def test_rollout_closeout_rechecks_current_fail_closed_readiness() -> None:
@@ -50,11 +38,10 @@ def test_rollout_closeout_rechecks_current_fail_closed_readiness() -> None:
     assert "FINAL: ROLLOUT-CLOSEOUT-READY" in text
 
 
-def test_rollout_closeout_permissions_are_observation_only() -> None:
+def test_rollout_closeout_permissions_are_read_only() -> None:
     text = _text()
 
-    assert 'contents: read' in text
-    assert 'actions: read' in text
+    assert 'permissions: read-all' in text
     assert 'contents: write' not in text
     assert 'issues: write' not in text
     assert 'actions: write' not in text
