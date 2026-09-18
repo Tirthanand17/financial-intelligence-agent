@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 
 from app.claims.eligibility import claim_quality_rejection_reason
 from app.services.change_detection import build_change_detection_snapshot
@@ -47,6 +47,18 @@ def _claim_item(row: ClaimRecord) -> dict[str, object]:
     }
 
 
+def _temporal_window_clause(cutoff_date: date):
+    # Preserve project temporal semantics exactly: effective_date takes
+    # precedence. Publication date participates only when effective_date is absent.
+    return or_(
+        ClaimRecord.effective_date >= cutoff_date,
+        and_(
+            ClaimRecord.effective_date.is_(None),
+            ClaimRecord.publication_date >= cutoff_date,
+        ),
+    )
+
+
 def build_intelligence_digest(
     *,
     lookback_days: int = 1,
@@ -58,6 +70,9 @@ def build_intelligence_digest(
     The digest is a read-only projection. It never invokes a language model,
     fetches external sources, mutates state, promotes trust, or generates market
     forecasts/trading recommendations. Missing temporal scope remains missing.
+
+    The bounded lookback is also pushed into SQL so the digest does not load the
+    complete document/claim history merely to discard old rows in Python.
     """
     if not 1 <= lookback_days <= 30:
         raise ValueError("lookback_days must be between 1 and 30")
@@ -71,32 +86,44 @@ def build_intelligence_digest(
     cutoff_datetime = generated_at - timedelta(days=lookback_days)
     cutoff_date = cutoff_datetime.date()
 
+    temporal_window = _temporal_window_clause(cutoff_date)
     with get_session() as session:
-        documents = list(session.scalars(select(DocumentRecord)))
-        claims = list(session.scalars(select(ClaimRecord)))
-
-    recent_documents = []
-    for row in documents:
-        retrieved_at = row.retrieved_at
-        if retrieved_at.tzinfo is None:
-            retrieved_at = retrieved_at.replace(tzinfo=UTC)
-        retrieved_at = retrieved_at.astimezone(UTC)
-        if retrieved_at < cutoff_datetime:
-            continue
-        recent_documents.append(row)
-    recent_documents.sort(
-        key=lambda row: row.retrieved_at if row.retrieved_at.tzinfo else row.retrieved_at.replace(tzinfo=UTC),
-        reverse=True,
-    )
+        recent_document_count = int(
+            session.scalar(
+                select(func.count())
+                .select_from(DocumentRecord)
+                .where(DocumentRecord.retrieved_at >= cutoff_datetime)
+            )
+            or 0
+        )
+        recent_documents = list(
+            session.scalars(
+                select(DocumentRecord)
+                .where(DocumentRecord.retrieved_at >= cutoff_datetime)
+                .order_by(DocumentRecord.retrieved_at.desc(), DocumentRecord.id.desc())
+                .limit(limit)
+            )
+        )
+        claims = list(
+            session.scalars(
+                select(ClaimRecord)
+                .where(temporal_window)
+                .where(ClaimRecord.state.not_in(INACTIVE_STATES))
+                .order_by(
+                    ClaimRecord.effective_date.desc().nullslast(),
+                    ClaimRecord.publication_date.desc().nullslast(),
+                    ClaimRecord.created_at.desc(),
+                    ClaimRecord.id.desc(),
+                )
+            )
+        )
 
     new_claims: list[ClaimRecord] = []
     conflicts: list[ClaimRecord] = []
     for row in claims:
-        temporal = _claim_temporal_date(row)
-        if temporal is None or temporal < cutoff_date:
-            continue
-        if row.state in INACTIVE_STATES:
-            continue
+        # Quality remains an evidence-text policy and is deliberately evaluated by
+        # the existing canonical quality function after the SQL temporal/state
+        # pushdown. No historical row is changed or deleted.
         if claim_quality_rejection_reason(row.metric, row.evidence_text) is not None:
             continue
         new_claims.append(row)
@@ -131,7 +158,7 @@ def build_intelligence_digest(
             "cutoff_date": cutoff_date.isoformat(),
         },
         "summary": {
-            "recent_documents": len(recent_documents),
+            "recent_documents": recent_document_count,
             "new_quality_safe_active_claims": len(new_claims),
             "detected_changes": len(changes),
             "conflicted_claims": len(conflicts),
@@ -150,13 +177,19 @@ def build_intelligence_digest(
                 "retrieved_at": _iso_datetime(row.retrieved_at),
                 "status": row.status,
             }
-            for row in recent_documents[:limit]
+            for row in recent_documents
         ],
         "new_evidence": [_claim_item(row) for row in new_claims[:limit]],
         "changes": changes,
         "conflicts": [_claim_item(row) for row in conflicts[:limit]],
         "incidents": incident_snapshot["incidents"][:limit],
         "incident_status": incident_snapshot["status"],
+        "performance": {
+            "document_history_full_scan": False,
+            "claim_history_full_scan": False,
+            "document_rows_materialized_at_most": limit,
+            "claim_query_temporally_bounded": True,
+        },
         "safety": {
             "read_only": True,
             "mutates_data": False,
