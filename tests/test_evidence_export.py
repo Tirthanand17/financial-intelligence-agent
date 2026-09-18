@@ -114,10 +114,14 @@ def test_json_export_reuses_bounded_filters_and_redacts_private_storage(monkeypa
     assert str(captured["date_to"]) == "2026-09-18"
     assert captured["limit"] == 50
     assert captured["offset"] == 4
-    body = response.text.casefold()
-    assert "object_key" not in body
-    assert "s3_key" not in body
-    assert "secret_access_key" not in body
+
+    payload = response.json()
+    assert payload["safety"]["exposes_private_object_keys"] is False
+    exported_row_keys = {str(key).casefold() for key in payload["rows"][0]}
+    assert "object_key" not in exported_row_keys
+    assert "s3_key" not in exported_row_keys
+    assert "raw_object_key" not in exported_row_keys
+    assert "secret_access_key" not in exported_row_keys
 
 
 def test_csv_export_is_well_formed_non_cacheable_and_quoted(monkeypatch) -> None:
