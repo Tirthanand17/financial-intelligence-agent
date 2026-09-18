@@ -15,6 +15,7 @@ PROTECTED_PATHS = (
     "/dashboard",
     "/dashboard/readiness",
     "/dashboard/capacity-plan",
+    "/dashboard/source-expansion",
     "/dashboard/incidents",
     "/dashboard/intelligence-view",
     "/dashboard/digest",
