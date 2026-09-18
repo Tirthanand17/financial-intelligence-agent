@@ -46,3 +46,37 @@ def test_scheduler_is_serial_and_non_cancelling() -> None:
     assert 'cancel-in-progress: false' in text
     assert 'matrix:' not in text
     assert 'for monitor in "${monitors[@]}"' in text
+
+
+def test_failure_alert_is_failure_only_deduplicated_and_secret_minimized() -> None:
+    text = _workflow_text()
+
+    assert 'operational-failure-alert:' in text
+    assert "needs.scheduled-cycle.result == 'failure'" in text
+    assert 'issues: write' in text
+    assert "[Operational Alert] Scheduled financial-intelligence cycle failed" in text
+    assert 'financial-intelligence-scheduled-failure' in text
+    assert 'issues.listForRepo' in text
+    assert 'issues.createComment' in text
+    assert 'issues.create' in text
+
+    # The alert body is intentionally metadata-only. Provider secret expressions
+    # remain scoped to the operational job and are never interpolated into alerts.
+    alert_section = text.split('operational-failure-alert:', 1)[1]
+    for secret_name in (
+        'DATABASE_URL',
+        'QDRANT_API_KEY',
+        'S3_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY',
+    ):
+        assert secret_name not in alert_section
+
+
+def test_alert_permissions_do_not_expand_scheduled_cycle_permissions() -> None:
+    text = _workflow_text()
+    scheduled_section = text.split('scheduled-cycle:', 1)[1].split('operational-failure-alert:', 1)[0]
+    alert_section = text.split('operational-failure-alert:', 1)[1]
+
+    assert 'contents: read' in scheduled_section
+    assert 'issues: write' not in scheduled_section
+    assert 'issues: write' in alert_section
