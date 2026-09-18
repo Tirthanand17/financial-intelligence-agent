@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,8 @@ REQUIRED_DATES = (
     "2026-09-20",
 )
 IST = ZoneInfo("Asia/Kolkata")
+GITHUB_API = "https://api.github.com"
+WORKFLOW_FILE = "operational-scheduled.yml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +98,39 @@ def _validate_runs_payload(payload: object) -> list[dict[str, object]]:
     return rows
 
 
+def _fetch_runs_from_github() -> list[dict[str, object]]:
+    repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not repository or "/" not in repository:
+        raise ValueError("GITHUB_REPOSITORY is missing or invalid")
+    if not token:
+        raise ValueError("GITHUB_TOKEN is missing")
+
+    url = (
+        f"{GITHUB_API}/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
+        "?event=schedule&per_page=30"
+    )
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "financial-intelligence-rollout-audit",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        if response.status != 200:
+            raise RuntimeError(f"GitHub Actions history returned HTTP {response.status}")
+        body = response.read(1_000_001)
+    if len(body) > 1_000_000:
+        raise ValueError("GitHub Actions history response exceeds 1 MiB safety bound")
+    payload = json.loads(body.decode("utf-8"))
+    if not isinstance(payload, dict) or "workflow_runs" not in payload:
+        raise ValueError("GitHub Actions history response is missing workflow_runs")
+    return _validate_runs_payload(payload["workflow_runs"])
+
+
 def _load_runs() -> list[dict[str, object]]:
     if len(sys.argv) == 2:
         payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
@@ -103,11 +139,12 @@ def _load_runs() -> list[dict[str, object]]:
         raise ValueError("Expected at most one captured workflow-runs JSON path")
 
     raw = os.environ.get("ROLLOUT_RUNS_JSON", "").strip()
-    if not raw:
-        raise ValueError("ROLLOUT_RUNS_JSON is missing")
-    if len(raw.encode("utf-8")) > 1_000_000:
-        raise ValueError("Captured workflow-run JSON exceeds 1 MiB safety bound")
-    return _validate_runs_payload(json.loads(raw))
+    if raw:
+        if len(raw.encode("utf-8")) > 1_000_000:
+            raise ValueError("Captured workflow-run JSON exceeds 1 MiB safety bound")
+        return _validate_runs_payload(json.loads(raw))
+
+    return _fetch_runs_from_github()
 
 
 def _markdown(rows: list[AuditRow], blockers: list[str]) -> str:
