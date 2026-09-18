@@ -27,24 +27,48 @@ Official documentation:
 
 `https://datahelpdesk.worldbank.org/knowledgebase/articles/889392`
 
-The current source registry already allow-lists `api.worldbank.org`, so no host-policy change is needed merely to design a future adapter.
+The current source registry already allow-lists `api.worldbank.org`.
 
-Activation is still blocked because the project has not yet completed all of the following for this source shape:
+### Candidate adapter now implemented
 
-- a source-specific World Bank API adapter;
-- explicit publication/observation/effective-date mapping rules suitable for this project;
-- exact accepted-response byte persistence/reconciliation validation;
-- bounded isolated live canary;
+`app/sources/world_bank.py` implements a deliberately bounded offline adapter contract. It does **not** make a network request and is not wired into the production monitor registry.
+
+The initial query contract is intentionally narrow:
+
+- country is fixed to India (`IND`);
+- at most 5 recent observations per request;
+- only these exact indicators are accepted:
+  - `NY.GDP.MKTP.KD.ZG` — Real GDP Growth;
+  - `FP.CPI.TOTL.ZG` — CPI Inflation;
+  - `SL.UEM.TOTL.ZS` — Unemployment Rate;
+- arbitrary hosts, paths, query strings, countries, or indicator codes are rejected;
+- generated URLs are revalidated against the existing World Bank source allow-list.
+
+### Temporal policy
+
+The World Bank response field `date` is treated only as an **observation period**. It is not rewritten into this project's `publication_date` or `effective_date` fields.
+
+The response-level `lastupdated` field is preserved separately as source metadata and is also not treated as a claim publication/effective date.
+
+The initial adapter accepts annual observation periods (`YYYY`) only. Monthly and quarterly periods remain blocked pending a separately reviewed temporal contract.
+
+Forecast observations explicitly marked with `obs_status = F` are retained diagnostically by the parser but are not eligible to become factual current claims. Missing values are also ineligible.
+
+### Remaining World Bank activation blockers
+
+The following are still intentionally incomplete:
+
+- exact accepted-response byte persistence/reconciliation validation in the production ingestion path;
+- one bounded isolated live canary;
 - cross-store post-write reconciliation for that canary;
-- explicit production scheduler approval after the initial four-source rollout closeout.
+- initial four-source scheduler rollout closeout;
+- separate production activation approval before adding any World Bank monitor.
 
-No API call is made by the readiness layer.
+No World Bank API call is made by this milestone.
 
 ## Candidate 2 — IMF SDMX API
 
 Candidate ID: `imf-sdmx-v2`
-
-Current official IMF API information describes SDMX 2.1 and SDMX 3.0 access.
 
 Candidate SDMX endpoint:
 
@@ -56,9 +80,9 @@ Official IMF API information:
 
 The current IMF source policy allow-lists `www.imf.org` and `imf.org` only. The candidate host `sdmxcentral.imf.org` is therefore intentionally blocked by the current source allow-list.
 
-The host must **not** be added merely to make the readiness check pass. Before any policy change, the operator must validate that the endpoint is the intended official source surface, define the exact adapter/temporal contract, test the downloader/response shape in isolation, and review the host addition as a separate source-policy change.
+The host must **not** be added merely to make the readiness check pass. Before any policy change, the operator must validate the endpoint ownership, define the exact adapter/temporal contract, test the downloader/response shape in isolation, and review the host addition as a separate source-policy change.
 
-IMF activation is additionally blocked by the same adapter, temporal-policy, exact-byte reconciliation, bounded-canary, and scheduler-approval requirements as World Bank.
+IMF activation remains blocked by host policy, source-specific adapter work, bounded query construction, temporal policy, exact-byte reconciliation, bounded live canary, and scheduler approval.
 
 ## Required activation sequence
 
@@ -79,7 +103,7 @@ A successful candidate check does not automatically activate another candidate.
 
 ## Rollout gate
 
-The four-source production scheduler is still in its initial observation period. This milestone therefore deliberately keeps both international candidates out of `app.monitoring.registry.MONITORS`.
+The four-source production scheduler is still in its initial observation period. This milestone deliberately keeps both international candidates out of `app.monitoring.registry.MONITORS`.
 
 No scheduler cadence, processing bound, source order, trust policy, storage policy, or existing monitor definition is changed.
 
@@ -98,4 +122,4 @@ This readiness layer:
 - does not delete or rewrite existing evidence;
 - introduces no paid infrastructure.
 
-Its purpose is to make blockers explicit before any source expansion is allowed to touch the validated production pipeline.
+Its purpose is to reduce implementation uncertainty while keeping production source expansion blocked until the validated activation gates are satisfied.
