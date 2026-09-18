@@ -22,7 +22,7 @@ def test_rollout_closeout_audit_is_manual_only_and_read_only() -> None:
     assert 'SOURCE_MONITORING_ENABLED: "true"' not in text
     assert 'SOURCE_AUTO_INGEST_ENABLED: "true"' not in text
     assert 'TRUST_PROMOTION_ENABLED: "true"' not in text
-    assert 'ROLLOUT_RUNS_JSON: ${{ steps.rollout-history.outputs.result }}' in text
+    assert "core.exportVariable('ROLLOUT_RUNS_JSON'" in text
     assert 'run: python scripts/rollout_closeout_history.py' in text
 
 
