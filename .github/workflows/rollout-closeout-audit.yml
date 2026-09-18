@@ -47,6 +47,11 @@ jobs:
           pip install -r requirements.txt
           pip check
 
+      - name: Audit seven scheduled observation days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/rollout_closeout_history.py
+
       - name: Require explicit cloud configuration
         shell: bash
         run: |
@@ -69,5 +74,5 @@ jobs:
           python scripts/phase17_production_readiness.py | tee /tmp/rollout-closeout-readiness.log
           grep -q '^FINAL: PASS-READ-ONLY' /tmp/rollout-closeout-readiness.log
 
-      - name: Validation baseline
-        run: echo 'rollout-closeout-workflow-valid'
+      - name: Closeout audit result
+        run: echo 'FINAL: ROLLOUT-CLOSEOUT-READY'
