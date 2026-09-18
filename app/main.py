@@ -11,6 +11,7 @@ from app.api.evidence_quality_scorecards_dashboard import router as evidence_qua
 from app.api.evidence_search_dashboard import router as evidence_search_dashboard_router
 from app.api.incidents_dashboard import router as incidents_dashboard_router
 from app.api.indicator_catalog_dashboard import router as indicator_catalog_dashboard_router
+from app.api.intelligence_digest_dashboard import router as intelligence_digest_dashboard_router
 from app.api.provenance_graph_dashboard import router as provenance_graph_dashboard_router
 from app.api.quality_coverage_dashboard import router as quality_coverage_dashboard_router
 from app.api.readiness_dashboard import router as readiness_dashboard_router
@@ -61,4 +62,5 @@ app.include_router(provenance_graph_dashboard_router)
 app.include_router(evidence_quality_scorecards_dashboard_router)
 app.include_router(evidence_export_dashboard_router)
 app.include_router(incidents_dashboard_router)
+app.include_router(intelligence_digest_dashboard_router)
 app.include_router(dashboard_hub_router)
