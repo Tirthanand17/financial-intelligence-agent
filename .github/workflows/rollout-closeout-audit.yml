@@ -47,6 +47,19 @@ jobs:
           pip install -r requirements.txt
           pip check
 
+      - name: Probe scheduled-run access
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'operational-scheduled.yml',
+              event: 'schedule',
+              per_page: 100
+            });
+            core.info(`scheduled runs visible: ${runs.length}`);
+
       - name: Audit script parser probe
         run: python -m py_compile scripts/rollout_closeout_history.py
 
