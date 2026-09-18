@@ -53,9 +53,16 @@ def test_recovery_rehearsal_is_ready_only_when_all_read_only_invariants_match() 
     assert report["execution_boundary"]["isolated_restore_executed"] is False
     assert report["execution_boundary"]["production_mutated"] is False
     assert report["execution_boundary"]["requires_explicit_operator_approval_for_real_restore"] is True
-    serialized = str(report).casefold()
-    assert "object_key" not in serialized
-    assert "secret_access_key" not in serialized
+
+    manifest_documents = report["manifest"]["documents"]
+    assert manifest_documents
+    for row in manifest_documents:
+        keys = {str(key).casefold() for key in row}
+        assert "object_key" not in keys
+        assert "raw_object_key" not in keys
+        assert "s3_key" not in keys
+    serialized_documents = str(manifest_documents).casefold()
+    assert "secret_access_key" not in serialized_documents
 
 
 def test_recovery_rehearsal_fails_closed_on_readiness_mismatch() -> None:
