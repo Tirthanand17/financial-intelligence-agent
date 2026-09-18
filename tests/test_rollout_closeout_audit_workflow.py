@@ -22,7 +22,8 @@ def test_rollout_closeout_audit_is_manual_only_and_read_only() -> None:
     assert 'SOURCE_MONITORING_ENABLED: "true"' not in text
     assert 'SOURCE_AUTO_INGEST_ENABLED: "true"' not in text
     assert 'TRUST_PROMOTION_ENABLED: "true"' not in text
-    assert 'python scripts/rollout_closeout_history.py /tmp/rollout-scheduled-runs.json' in text
+    assert 'ROLLOUT_RUNS_JSON: ${{ steps.rollout-history.outputs.result }}' in text
+    assert 'run: python scripts/rollout_closeout_history.py' in text
 
 
 def test_rollout_closeout_requires_all_seven_observation_dates() -> None:
