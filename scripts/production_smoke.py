@@ -21,6 +21,7 @@ PROTECTED_PATHS = (
     "/dashboard/timeline",
     "/dashboard/changes",
     "/dashboard/search",
+    "/dashboard/document",
 )
 REQUIRED_DASHBOARD_HEADERS = {
     "x-content-type-options": "nosniff",
