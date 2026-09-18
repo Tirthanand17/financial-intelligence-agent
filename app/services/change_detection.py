@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.claims.catalog import normalize_indicator_metric
 from app.claims.eligibility import claim_quality_rejection_reason
@@ -77,21 +77,29 @@ def build_change_detection_snapshot(
     exact source metric when unmapped) + unit series. Quality-safe, dated claims
     participate, including superseded historical claims. Rejected claims do not.
     Unknown dates are never invented and fuzzy metric matching is disabled.
+
+    Optional source/entity scope is applied by PostgreSQL/SQLite before claim rows
+    are materialized, preserving exact behavior while avoiding avoidable full claim
+    history loads for filtered dashboard/API requests.
     """
     if not 1 <= limit <= 500:
         raise ValueError("limit must be between 1 and 500")
 
     with get_session() as session:
-        rows = list(session.scalars(select(ClaimRecord)))
+        persisted_claims = int(
+            session.scalar(select(func.count()).select_from(ClaimRecord)) or 0
+        )
+        claim_stmt = select(ClaimRecord)
+        if source_id is not None:
+            claim_stmt = claim_stmt.where(ClaimRecord.source_id == source_id)
+        if entity is not None:
+            claim_stmt = claim_stmt.where(ClaimRecord.entity == entity)
+        rows = list(session.scalars(claim_stmt))
         supersessions = list(session.scalars(select(ClaimSupersessionRecord)))
 
     eligible: list[ClaimRecord] = []
     excluded_reasons: Counter[str] = Counter()
     for row in rows:
-        if source_id is not None and row.source_id != source_id:
-            continue
-        if entity is not None and row.entity != entity:
-            continue
         if row.state in EXCLUDED_STATES:
             excluded_reasons["rejected_state"] += 1
             continue
@@ -205,7 +213,8 @@ def build_change_detection_snapshot(
         "mode": "read_only_evidence_change_detection",
         "scope": {"source_id": source_id, "entity": entity, "limit": limit},
         "summary": {
-            "persisted_claims": len(rows),
+            "persisted_claims": persisted_claims,
+            "scoped_claim_rows": len(rows),
             "eligible_dated_claims": len(eligible),
             "series_compared": len(grouped),
             "detected_changes": len(events),
@@ -215,6 +224,11 @@ def build_change_detection_snapshot(
         "change_kind_counts": dict(sorted(kind_counts.items())),
         "excluded_reason_counts": dict(sorted(excluded_reasons.items())),
         "changes": events[:limit],
+        "performance": {
+            "source_filter_sql_pushdown": source_id is not None,
+            "entity_filter_sql_pushdown": entity is not None,
+            "full_claim_history_materialized": source_id is None and entity is None,
+        },
         "safety": {
             "mutates_data": False,
             "fuzzy_matching_enabled": False,
