@@ -17,6 +17,8 @@ class ExpansionCandidate:
     adapter_implemented: bool = False
     bounded_query_contract_validated: bool = False
     temporal_policy_validated: bool = False
+    persistence_path_implemented: bool = False
+    offline_exact_byte_contract_validated: bool = False
     exact_byte_reconciliation_validated: bool = False
     bounded_live_canary_passed: bool = False
 
@@ -34,6 +36,8 @@ INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
         adapter_implemented=True,
         bounded_query_contract_validated=True,
         temporal_policy_validated=True,
+        persistence_path_implemented=True,
+        offline_exact_byte_contract_validated=True,
     ),
     ExpansionCandidate(
         candidate_id="imf-sdmx-v2",
@@ -66,6 +70,10 @@ def _candidate_snapshot(candidate: ExpansionCandidate) -> dict[str, object]:
         "source_specific_adapter_implemented": candidate.adapter_implemented,
         "bounded_query_contract_validated": candidate.bounded_query_contract_validated,
         "explicit_temporal_policy_validated": candidate.temporal_policy_validated,
+        "persistence_path_implemented": candidate.persistence_path_implemented,
+        "offline_exact_byte_contract_validated": candidate.offline_exact_byte_contract_validated,
+        # This remains false until a controlled live cross-store canary proves
+        # B2/PostgreSQL/Qdrant reconciliation against actual provider bytes.
         "exact_byte_reconciliation_validated": candidate.exact_byte_reconciliation_validated,
         "bounded_live_canary_passed": candidate.bounded_live_canary_passed,
         "already_in_live_monitor_registry": bool(active_monitor_ids),
@@ -127,6 +135,7 @@ def build_international_expansion_readiness() -> dict[str, object]:
             "mutates_evidence": False,
             "note": (
                 "Candidate metadata documents the work still required before any international source is activated. "
+                "Offline persistence-path tests do not count as a live exact-byte reconciliation canary. "
                 "The existing RBI/SEBI/NSE/MoSPI production source set remains unchanged."
             ),
         },
