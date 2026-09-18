@@ -49,7 +49,7 @@ jobs:
 
       - name: Audit seven scheduled observation days
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: python scripts/rollout_closeout_history.py
 
       - name: Require explicit cloud configuration
