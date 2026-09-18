@@ -17,6 +17,7 @@ from app.api.provenance_graph_dashboard import router as provenance_graph_dashbo
 from app.api.quality_coverage_dashboard import router as quality_coverage_dashboard_router
 from app.api.readiness_dashboard import router as readiness_dashboard_router
 from app.api.routes import router
+from app.api.source_expansion_dashboard import router as source_expansion_dashboard_router
 from app.api.timeline_dashboard import router as timeline_dashboard_router
 from app.api.v1_read import router as api_v1_read_router
 from app.api.verification_dashboard import router as verification_dashboard_router
@@ -54,6 +55,7 @@ app.include_router(verification_dashboard_router)
 app.include_router(timeline_dashboard_router)
 app.include_router(readiness_dashboard_router)
 app.include_router(capacity_headroom_dashboard_router)
+app.include_router(source_expansion_dashboard_router)
 app.include_router(quality_coverage_dashboard_router)
 app.include_router(indicator_catalog_dashboard_router)
 app.include_router(change_detection_dashboard_router)
