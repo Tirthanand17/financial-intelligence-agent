@@ -19,13 +19,7 @@ DASHBOARD_CONTENT_SECURITY_POLICY = "; ".join(
 
 
 def harden_response_headers(request: Request, response: Response) -> Response:
-    """Apply secret-free browser hardening without changing application behavior.
-
-    Browser-oriented dashboard routes receive a restrictive CSP and explicit
-    no-store directives. Baseline headers are safe for the JSON/API surface too.
-    Inline CSS/JavaScript is currently part of the intentionally small dashboard,
-    so CSP permits inline style/script until those assets are externalized.
-    """
+    """Apply secret-free browser and protected-read-API hardening."""
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -38,7 +32,8 @@ def harden_response_headers(request: Request, response: Response) -> Response:
         "max-age=31536000; includeSubDomains",
     )
 
-    if request.url.path.startswith("/dashboard"):
+    path = request.url.path
+    if path.startswith("/dashboard"):
         # Preserve the established dashboard API cache contract while also
         # protecting HTML and authentication-error responses consistently.
         response.headers["Cache-Control"] = "no-store"
@@ -46,5 +41,11 @@ def harden_response_headers(request: Request, response: Response) -> Response:
         response.headers["Content-Security-Policy"] = DASHBOARD_CONTENT_SECURITY_POLICY
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    elif path == "/api/v1" or path.startswith("/api/v1/"):
+        # The versioned API exposes private persisted evidence. Keep successful,
+        # validation-error, not-found, and authentication-error responses out of
+        # browser/proxy caches without applying the HTML dashboard CSP to JSON.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
 
     return response
