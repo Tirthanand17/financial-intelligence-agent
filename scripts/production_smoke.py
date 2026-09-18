@@ -14,6 +14,7 @@ PROTECTED_PATHS = (
     "/dashboard/hub",
     "/dashboard",
     "/dashboard/readiness",
+    "/dashboard/incidents",
     "/dashboard/intelligence-view",
     "/dashboard/verification",
     "/dashboard/quality-coverage",
