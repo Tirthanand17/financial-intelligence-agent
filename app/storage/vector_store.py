@@ -49,6 +49,35 @@ def _ensure_collection() -> None:
     _ensure_filter_indexes()
 
 
+def document_point_ids(document_id: str, chunk_count: int) -> list[str]:
+    """Return the deterministic point IDs used for one persisted document."""
+    if chunk_count < 0:
+        raise ValueError("chunk_count cannot be negative")
+    return [
+        str(uuid5(NAMESPACE_URL, f"{document_id}:{index}"))
+        for index in range(chunk_count)
+    ]
+
+
+def count_indexed_document_points(*, document_id: str, chunk_count: int) -> int:
+    """Count expected deterministic points without creating or mutating a collection."""
+    if chunk_count <= 0:
+        return 0
+
+    settings = get_settings()
+    client = get_qdrant_client()
+    if not client.collection_exists(settings.qdrant_collection):
+        return 0
+
+    records = client.retrieve(
+        collection_name=settings.qdrant_collection,
+        ids=document_point_ids(document_id, chunk_count),
+        with_payload=False,
+        with_vectors=False,
+    )
+    return len(records)
+
+
 def index_chunks(*, document_id: str, chunks: list[str], payload_base: dict[str, object]) -> None:
     if not chunks:
         raise ValueError("Cannot index an empty chunk list")
@@ -57,8 +86,9 @@ def index_chunks(*, document_id: str, chunks: list[str], payload_base: dict[str,
     _ensure_collection()
 
     points: list[models.PointStruct] = []
-    for index, chunk in enumerate(chunks):
-        point_id = str(uuid5(NAMESPACE_URL, f"{document_id}:{index}"))
+    for index, (point_id, chunk) in enumerate(
+        zip(document_point_ids(document_id, len(chunks)), chunks, strict=True)
+    ):
         payload = dict(payload_base)
         payload.update({"document_id": document_id, "chunk_index": index, "text": chunk})
         points.append(
