@@ -22,6 +22,7 @@ PROTECTED_PATHS = (
     "/dashboard/timeline",
     "/dashboard/changes",
     "/dashboard/search",
+    "/dashboard/export",
     "/dashboard/document",
     "/dashboard/conflicts",
     "/dashboard/provenance",
