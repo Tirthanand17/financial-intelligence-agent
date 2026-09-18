@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Request
 
 from app.api.capacity_headroom_dashboard import router as capacity_headroom_dashboard_router
@@ -24,10 +26,27 @@ from app.api.verification_dashboard import router as verification_dashboard_rout
 from app.observability import observe_http_request
 from app.security_headers import harden_response_headers
 
+
+def api_docs_configuration(app_env: str | None) -> dict[str, str | None]:
+    """Expose interactive API schema surfaces only outside production.
+
+    The deployed Render service is private operational infrastructure. Swagger,
+    ReDoc, and the raw OpenAPI document add no production capability and expose
+    the route inventory to unauthenticated internet clients, so production fails
+    closed by not mounting those routes at all. Development/test environments keep
+    FastAPI's normal documentation experience.
+    """
+    production = (app_env or "development").strip().casefold() == "production"
+    if production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+
+
 app = FastAPI(
     title="Financial Intelligence Agent",
     version="0.3.0",
     description="Continuously learning financial and economic intelligence system.",
+    **api_docs_configuration(os.getenv("APP_ENV")),
 )
 
 
