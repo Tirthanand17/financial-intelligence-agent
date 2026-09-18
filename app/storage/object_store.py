@@ -34,6 +34,7 @@ def put_raw_document(*, source_id: str, sha256: str, content: bytes, content_typ
     ensure_bucket(client, settings.s3_bucket)
 
     extension = {
+        "application/json": "json",
         "application/pdf": "pdf",
         "text/html": "html",
         "text/plain": "txt",
