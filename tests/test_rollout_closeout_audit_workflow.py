@@ -66,4 +66,5 @@ def test_rollout_closeout_permissions_are_observation_only() -> None:
     assert 'contents: write' not in text
     assert 'issues: write' not in text
     assert 'actions: write' not in text
-    assert 'GITHUB_TOKEN: ${{ github.token }}' in text
+    assert 'GH_TOKEN: ${{ github.token }}' in text
+    assert 'GITHUB_TOKEN:' not in text
