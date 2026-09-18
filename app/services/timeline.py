@@ -74,6 +74,10 @@ def build_timeline_snapshot(
     Dates are never invented. A point without publication/effective date remains
     explicitly undated. The service performs no forecasting, state transition,
     trust promotion, source fetch, or persistence write.
+
+    Filtered requests push entity/metric/source predicates into SQL. Facets are
+    obtained with lightweight distinct-column queries so the full unfiltered claim
+    table is not materialized merely to populate filter controls.
     """
     if not 1 <= series_limit <= 50:
         raise ValueError("series_limit must be between 1 and 50")
@@ -81,20 +85,19 @@ def build_timeline_snapshot(
         raise ValueError("points_per_series must be between 1 and 100")
 
     with get_session() as session:
-        all_claims = list(session.scalars(select(ClaimRecord)))
+        available_entities = sorted(session.scalars(select(ClaimRecord.entity).distinct()))
+        available_metrics = sorted(session.scalars(select(ClaimRecord.metric).distinct()))
+        available_sources = sorted(session.scalars(select(ClaimRecord.source_id).distinct()))
+
+        claim_stmt = select(ClaimRecord)
+        if entity is not None:
+            claim_stmt = claim_stmt.where(ClaimRecord.entity == entity)
+        if metric is not None:
+            claim_stmt = claim_stmt.where(ClaimRecord.metric == metric)
+        if source_id is not None:
+            claim_stmt = claim_stmt.where(ClaimRecord.source_id == source_id)
+        filtered = list(session.scalars(claim_stmt))
         supersessions = list(session.scalars(select(ClaimSupersessionRecord)))
-
-    available_entities = sorted({row.entity for row in all_claims})
-    available_metrics = sorted({row.metric for row in all_claims})
-    available_sources = sorted({row.source_id for row in all_claims})
-
-    filtered = [
-        row
-        for row in all_claims
-        if (entity is None or row.entity == entity)
-        and (metric is None or row.metric == metric)
-        and (source_id is None or row.source_id == source_id)
-    ]
 
     supersession_by_older = {row.older_claim_id: row for row in supersessions}
     superseded_by_newer: dict[str, list[ClaimSupersessionRecord]] = defaultdict(list)
@@ -246,6 +249,13 @@ def build_timeline_snapshot(
             ],
         },
         "series": ordered_series,
+        "performance": {
+            "facets_use_distinct_sql": True,
+            "entity_filter_sql_pushdown": entity is not None,
+            "metric_filter_sql_pushdown": metric is not None,
+            "source_filter_sql_pushdown": source_id is not None,
+            "full_claim_history_materialized": entity is None and metric is None and source_id is None,
+        },
         "safety": {
             "invented_dates": False,
             "mutates_data": False,
