@@ -61,5 +61,6 @@ def test_production_smoke_covers_current_read_only_workspace_pages() -> None:
         "/dashboard/search",
         "/dashboard/document",
         "/dashboard/conflicts",
+        "/dashboard/provenance",
     }
     assert set(PROTECTED_PATHS) == required
