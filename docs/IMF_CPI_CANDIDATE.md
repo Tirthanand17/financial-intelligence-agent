@@ -1,69 +1,65 @@
-# IMF CPI Candidate — Offline Adapter Milestone
+# IMF CPI Candidate — Verified Structure Milestone
 
 ## Status
 
-This milestone is intentionally offline and non-operational. It does not widen the IMF source allow-list, fetch IMF data, persist evidence, create a monitor, change the scheduler, or activate IMF in production.
+This milestone remains non-operational. It does not widen the IMF source allow-list, persist IMF evidence, create a monitor, change the scheduler, or activate IMF in production.
 
 The existing World Bank production source remains unchanged.
 
-## Current official-source findings
+## Verified public IMF structure contract
 
 Research checkpoint: 20 September 2026.
 
-The IMF Data Portal states that IMF data are available through SDMX 2.1 and SDMX 3.0 APIs and directs users to an authenticated Swagger portal for API exploration.
+Current official IMF documentation states that IMF Data APIs support SDMX 2.1 and SDMX 3.0 and that API exploration is provided through the IMF API developer portal using a beta-portal account.
 
-The IMF also continues to operate IMF SDMX Central at `https://sdmxcentral.imf.org/`, whose REST web-service entry is `https://sdmxcentral.imf.org/sdmx/v2/`.
+The public IMF SDMX Central registry remains reachable at `https://sdmxcentral.imf.org/sdmx/v2/`. Bounded GET-only research against that official registry established:
 
-IMF's current IFS migration guidance says the former monolithic International Financial Statistics dataset is discontinued as a single dataset and that its consumer-price series now live in the Consumer Price Index (CPI) dataset.
+- dataflow: `IMF:CPI(1.0)`;
+- referenced data structure: `IMF:ECOFIN_DSD(1.0)`;
+- data-key dimension order: `DATA_DOMAIN`, `REF_AREA`, `INDICATOR`, `COUNTERPART_AREA`, `FREQ`;
+- observation dimension: `TIME_PERIOD`;
+- CPI constraint: `IMF:CPI_CONSTRAINT`;
+- CPI data domain: `CPI`;
+- India reference-area code: `IN`;
+- all-items CPI indicator: `PCPI_IX` — `Prices, Consumer Price, All items, Index`;
+- no-counterpart code required by the CPI constraint: `_Z`;
+- supported CPI frequencies include annual (`A`), quarterly (`Q`) and monthly (`M`);
+- `OBS_STATUS`, `BASE_PER` and `UNIT_MULT` are source metadata/attributes in the ECOFIN structure.
 
-The official IMF SDMX Central guidance identifies:
+The public registry responses were small, bounded and read-only after broad structure expansion was rejected by the research ceiling. In particular, the global IMF indicator codelist was not accepted as a 42+ MiB response; the exact item-level `PCPI_IX` resource was used instead.
 
-- dataflow: `IMF:CPI(1.0)` — Consumer Price Index;
-- all-items CPI indicator: `PCPI_IX`;
-- time frequency codes including annual (`A`), quarterly (`Q`) and monthly (`M`);
-- `OBS_STATUS` as an observation attribute;
-- `TIME_PERIOD` as an observation period rather than a publication/effective date.
+## Public data-route result and authentication gate
+
+Two standards-compatible public data-query shapes were tested with the exact resolved key `CPI.IN.PCPI_IX._Z.M` and a three-observation bound:
+
+- SDMX v2 context form under `/sdmx/v2/data/dataflow/IMF/CPI/1.0/...`;
+- SDMX 2.1/Fusion-compatible form under `/sdmx/v2/data/IMF,CPI,1.0/...`.
+
+Both public SDMX Central data routes returned HTTP `501 Not Implemented`. No evidence or cloud write was performed.
+
+The current IMF CPI dataset page links API access to `portal.api.imf.org`, and the official IMF API page explicitly requires signing in with a beta-portal account to explore the Swagger API. The exact authenticated IMF Data API endpoint, authentication scheme and query contract therefore remain unverified and must not be guessed.
 
 ## Implemented offline contract
 
-`app/sources/imf.py` provides a bounded SDMX-CSV parser for the CPI candidate.
+`app/sources/imf.py` now encodes only the structure facts independently verified from the public IMF registry:
 
-It requires named columns rather than relying on positional guessing:
+- `IMF_CPI_DSD_ID = ECOFIN_DSD`;
+- `IMF_CPI_DATA_DOMAIN = CPI`;
+- `IMF_CPI_INDIA_REF_AREA = IN`;
+- `IMF_CPI_ALL_ITEMS_INDICATOR = PCPI_IX`;
+- `IMF_CPI_NO_COUNTERPART_AREA = _Z`.
 
-- `FREQ`;
-- `REF_AREA`;
-- `INDICATOR`;
-- `TIME_PERIOD`;
-- `OBS_VALUE`.
+The bounded SDMX-CSV parser requires the full verified key fields by name, rejects a wrong domain/area/indicator/counterpart, permits only annual/quarterly/monthly periods with matching syntax, caps rows at 12, rejects duplicate observations, preserves exact input bytes, retains missing values, and never maps `TIME_PERIOD` to `publication_date` or `effective_date`.
 
-It also preserves optional source metadata when present:
-
-- `OBS_STATUS`;
-- `BASE_PER`;
-- `UNIT_MULT`;
-- `COUNTERPART_AREA`.
-
-The parser:
-
-- accepts only `PCPI_IX` for this milestone;
-- requires an explicitly expected reference-area code supplied by the caller;
-- permits only annual, quarterly or monthly periods with matching syntax;
-- caps accepted rows at 12;
-- rejects duplicate observation keys;
-- retains missing values without inventing replacements;
-- treats explicit `OBS_STATUS=F` observations as forecast and not fact-eligible;
-- preserves the exact input bytes on the parsed result;
-- never maps `TIME_PERIOD` to `publication_date` or `effective_date`;
-- performs no network I/O and no storage writes.
-
-The reference-area code is deliberately not hard-coded yet. The exact production API/query contract must prove the current IMF country coding for the selected live endpoint before India is fixed into a URL builder.
+Explicit `OBS_STATUS=F` remains ineligible for factual mapping. No structured claim is created by this adapter.
 
 ## Still blocked
 
 The following gates intentionally remain false:
 
-- candidate host allow-listed;
-- exact bounded live query contract validated;
+- authenticated IMF Data API endpoint/query contract validated;
+- IMF API authentication configured;
+- candidate data host allow-listed for ingestion;
 - persistence path implemented;
 - live canary runner implemented;
 - PostgreSQL/B2/Qdrant reconciliation validated;
@@ -72,19 +68,10 @@ The following gates intentionally remain false:
 - scheduler integration;
 - IMF production activation.
 
-`sdmxcentral.imf.org` therefore remains outside `app.sources.registry` for the IMF source.
+No current production source or scheduler behavior changes in this milestone.
 
 ## Next safe milestone
 
-Before any source-policy widening or live write:
+The next step requires authorized IMF API access. After the user signs into or creates the IMF beta API portal account, the project should inspect the current Swagger definition to establish the exact SDMX 2.1/3.0 base URL, authentication requirement and CPI data-query shape. Secrets must be entered by the user directly into the provider/GitHub secret UI and must never be pasted into chat.
 
-1. resolve the exact supported current IMF dissemination endpoint and authentication requirements;
-2. resolve the exact CPI dataflow/version and India reference-area code on that endpoint;
-3. build one fixed, bounded query for all-items CPI only;
-4. reject redirects, oversize responses, unexpected content types, areas, indicators, frequencies and response shapes;
-5. add exact-byte persistence with SHA-256 replay verification and PostgreSQL/B2/Qdrant reconciliation;
-6. create a separate one-shot canary requiring explicit network/write flags;
-7. run the canary once with safe capacity and `TRUST_PROMOTION_ENABLED=false`;
-8. only after clean reconciliation consider a separate source-policy/production-activation decision.
-
-Any ambiguity in API ownership, authentication, country coding, temporal semantics, or response structure remains a blocker rather than being guessed around.
+Only after that contract is verified should a fresh branch add a fixed India/all-items CPI URL builder, strict response validation, source-policy review, exact-byte persistence/reconciliation, and then a separate one-shot live canary with safe capacity and `TRUST_PROMOTION_ENABLED=false`.
