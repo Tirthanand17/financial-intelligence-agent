@@ -13,7 +13,7 @@ URLS = {
     "constraint": f"{BASE}/contentconstraint/IMF/CPI_CONSTRAINT/latest/",
     "data_domain": f"{BASE}/codelist/IMF/CL_DATADOMAIN/1.0/",
     "ref_area": f"{BASE}/codelist/IMF/CL_REF_AREA/1.0/",
-    "indicator": f"{BASE}/codelist/IMF/CL_INDICATOR/1.0/",
+    "indicator": f"{BASE}/codelist/IMF/CL_INDICATOR/1.0/PCPI_IX/",
     "frequency": f"{BASE}/codelist/SDMX/CL_FREQ/1.0/",
 }
 MAX_BYTES = 2 * 1024 * 1024
@@ -144,7 +144,7 @@ def main() -> None:
     if not constraint:
         raise SystemExit("FINAL: BLOCKED - CPI constraint returned no key values")
     print(
-        "FINAL: PASS-READ-ONLY - IMF CPI constraint and key-code evidence resolved; "
+        "FINAL: PASS-READ-ONLY - IMF CPI constraint and exact key-code evidence resolved; "
         "no data or cloud writes performed."
     )
 
