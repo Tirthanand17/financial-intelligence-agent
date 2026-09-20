@@ -14,33 +14,91 @@ router = APIRouter()
 security = HTTPBasic(auto_error=False)
 
 
-def require_dashboard_auth(
+def _auth_error(detail: str = "Authentication required.") -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+
+def _credentials_match(
+    credentials: HTTPBasicCredentials,
+    *,
+    username: str,
+    password: str,
+) -> bool:
+    return secrets.compare_digest(credentials.username.encode(), username.encode()) and secrets.compare_digest(
+        credentials.password.encode(), password.encode()
+    )
+
+
+def require_operator_auth(
     credentials: HTTPBasicCredentials | None = Depends(security),
 ) -> None:
+    """Require the existing operator identity for manual/private POST operations."""
     settings = get_settings()
     username = settings.dashboard_username
     password = settings.dashboard_password
-
     if not username or not password:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dashboard authentication is not configured.",
         )
     if credentials is None:
+        raise _auth_error()
+    if not _credentials_match(credentials, username=username, password=password):
+        raise _auth_error("Invalid dashboard credentials.")
+
+
+def require_dashboard_auth(
+    credentials: HTTPBasicCredentials | None = Depends(security),
+) -> None:
+    """Require operator or optional inspection-only credentials for read surfaces.
+
+    When no read-only identity is configured this preserves the historical single-
+    operator behavior exactly. A partially configured read-only identity fails
+    closed rather than silently changing the access model.
+    """
+    settings = get_settings()
+    operator_username = settings.dashboard_username
+    operator_password = settings.dashboard_password
+    readonly_username = getattr(settings, "dashboard_readonly_username", None)
+    readonly_password = getattr(settings, "dashboard_readonly_password", None)
+
+    if not operator_username or not operator_password:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required.",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dashboard authentication is not configured.",
         )
 
-    valid_user = secrets.compare_digest(credentials.username.encode(), username.encode())
-    valid_password = secrets.compare_digest(credentials.password.encode(), password.encode())
-    if not (valid_user and valid_password):
+    readonly_user_set = bool((readonly_username or "").strip())
+    readonly_password_set = bool((readonly_password or "").strip())
+    if readonly_user_set != readonly_password_set:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid dashboard credentials.",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Read-only dashboard authentication is incompletely configured.",
         )
+
+    if credentials is None:
+        raise _auth_error()
+
+    if _credentials_match(
+        credentials,
+        username=operator_username,
+        password=operator_password,
+    ):
+        return
+
+    if readonly_user_set and readonly_username is not None and readonly_password is not None:
+        if _credentials_match(
+            credentials,
+            username=readonly_username,
+            password=readonly_password,
+        ):
+            return
+
+    raise _auth_error("Invalid dashboard credentials.")
 
 
 DASHBOARD_HTML = r'''<!doctype html>

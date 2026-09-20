@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 
-from app.api.dashboard import require_dashboard_auth
+from app.api.dashboard import require_operator_auth
 from app.services.ingestion import ingest_url
 from app.services.qa import answer_question
 from app.sources.registry import TRUSTED_SOURCES
@@ -37,7 +37,7 @@ def list_sources() -> list[dict[str, object]]:
     ]
 
 
-@router.post("/ingest", dependencies=[Depends(require_dashboard_auth)])
+@router.post("/ingest", dependencies=[Depends(require_operator_auth)])
 def ingest(request: IngestRequest) -> dict[str, object]:
     """Operator-only manual ingestion entry point.
 
@@ -52,7 +52,7 @@ def ingest(request: IngestRequest) -> dict[str, object]:
         raise HTTPException(status_code=502, detail=f"Ingestion failed: {type(exc).__name__}") from exc
 
 
-@router.post("/ask", dependencies=[Depends(require_dashboard_auth)])
+@router.post("/ask", dependencies=[Depends(require_operator_auth)])
 def ask(request: AskRequest) -> dict[str, object]:
     """Operator-only grounded retrieval over private persisted evidence."""
     try:
