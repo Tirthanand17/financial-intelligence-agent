@@ -51,13 +51,17 @@ def test_world_bank_is_activated_and_imf_remains_blocked() -> None:
     assert imf["checks"]["trusted_source_registered"] is True
     assert imf["checks"]["candidate_uses_https"] is True
     assert imf["checks"]["candidate_host_allowlisted"] is False
-    assert imf["checks"]["source_specific_adapter_implemented"] is False
+    assert imf["checks"]["source_specific_adapter_implemented"] is True
     assert imf["checks"]["bounded_query_contract_validated"] is False
-    assert imf["checks"]["explicit_temporal_policy_validated"] is False
+    assert imf["checks"]["explicit_temporal_policy_validated"] is True
     assert imf["checks"]["persistence_path_implemented"] is False
-    assert imf["checks"]["offline_exact_byte_contract_validated"] is False
+    assert imf["checks"]["offline_exact_byte_contract_validated"] is True
     assert imf["checks"]["live_canary_runner_implemented"] is False
+    assert imf["checks"]["exact_byte_reconciliation_validated"] is False
+    assert imf["checks"]["bounded_live_canary_passed"] is False
     assert "candidate_host_allowlisted" in imf["activation_blockers"]
+    assert "bounded_query_contract_validated" in imf["activation_blockers"]
+    assert "persistence_path_implemented" in imf["activation_blockers"]
     assert "live_canary_runner_implemented" in imf["activation_blockers"]
     assert imf["activation_ready"] is False
     assert imf["production_activated"] is False
