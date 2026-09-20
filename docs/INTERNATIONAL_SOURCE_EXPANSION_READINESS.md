@@ -2,18 +2,19 @@
 
 ## Status
 
-World Bank has passed its bounded exact-byte live evidence canary and is now eligible for a separate production activation decision. It is **not yet** in the live monitoring registry or recurring scheduler.
+World Bank has passed both the bounded exact-byte live evidence canary and the source-specific operational-monitor canary. This milestone activates one narrowly bounded World Bank monitor in the recurring production scheduler.
 
 Research checkpoint: 20 September 2026.
 
-The current production source set remains unchanged:
+The production source set is:
 
 - RBI — `rbi-press-releases-rss`
 - SEBI — `sebi-rss`
 - NSE — `nse-daily-buyback-rss`
 - MoSPI — `mospi-latest-releases-api`
+- World Bank — `world-bank-india-gdp-api`
 
-World Bank and IMF are registered as trusted Authority-B sources for research. IMF remains blocked; World Bank has completed the source-specific adapter, persistence, reconciliation and first live-canary gates but still requires the separate operational-monitor canary and activation milestone.
+World Bank and IMF remain registered as trusted Authority-B sources. World Bank is production-active under the validated bounded contract below. IMF remains blocked and is not added to the monitor registry or scheduler.
 
 ## Candidate 1 — World Bank Indicators API v2
 
@@ -27,17 +28,18 @@ Official documentation:
 
 `https://datahelpdesk.worldbank.org/knowledgebase/articles/889392`
 
-The source registry already allow-lists `api.worldbank.org`.
+The source registry allow-lists `api.worldbank.org`.
 
 ### Validated bounded contract
 
-`app/sources/world_bank.py` provides the source-specific adapter. The validated initial query contract remains deliberately narrow:
+`app/sources/world_bank.py` provides the source-specific adapter. The production query contract remains deliberately narrow:
 
 - country fixed to India (`IND`);
-- at most 5 recent observations per request;
-- only exact reviewed indicators accepted;
-- the first operational-monitor contract uses `NY.GDP.MKTP.KD.ZG` — Real GDP Growth;
-- arbitrary hosts, paths, query strings, countries and indicator codes are rejected;
+- production indicator fixed to `NY.GDP.MKTP.KD.ZG` — Real GDP Growth;
+- production request limited to 3 recent annual observations;
+- one evidence document maximum per due cycle;
+- monitor cadence fixed at 1440 minutes;
+- arbitrary hosts, paths, query strings, countries and unreviewed indicator codes are rejected;
 - generated URLs are revalidated against the existing World Bank source allow-list;
 - redirects are rejected;
 - JSON response is capped at 1 MiB.
@@ -52,9 +54,9 @@ The adapter accepts annual observation periods (`YYYY`) only. Monthly or quarter
 
 Forecast observations explicitly marked `obs_status = F` and missing values are not eligible factual observations.
 
-### Exact-byte persistence and live canary
+### Exact-byte persistence and validation
 
-The production persistence path has been validated end-to-end:
+The persistence path has been validated end-to-end:
 
 - exact accepted JSON bytes are SHA-256 hashed;
 - exact bytes are preserved in private B2;
@@ -65,35 +67,28 @@ The production persistence path has been validated end-to-end:
 - incomplete reconciliation remains explicitly `reconciliation_required` rather than deleting evidence;
 - no structured claims are created under the current annual-observation temporal model.
 
-The bounded live canary executed on 20 September 2026 and passed:
-
-- indicator: `NY.GDP.MKTP.KD.ZG`;
-- accepted observation periods: 2025, 2024, 2023;
-- evidence chunks: 3;
-- structured claims: 0;
-- SHA-256 reconciliation: passed;
-- PostgreSQL/B2/Qdrant reconciliation: passed;
-- post-write production readiness: `FINAL: PASS-READ-ONLY`;
-- trust events remained 0.
+The bounded live evidence canary executed on 20 September 2026 and passed with three 2025/2024/2023 evidence chunks, zero structured claims, clean SHA-256/PostgreSQL/B2/Qdrant reconciliation, zero trust events and post-write `PASS-READ-ONLY` readiness.
 
 The initial four-source scheduler rollout also closed cleanly for all required dates from 14–20 September 2026.
 
-### Current World Bank activation gate
+The subsequent World Bank operational-monitor canary also passed its explicit cloud configuration, pre-canary readiness, bounded source-specific cycle validation and post-canary readiness steps. That successful canary is the final evidence gate used by this activation milestone.
 
-World Bank is validation-ready but not production-active. Before adding it to the live monitor registry and scheduler, the project is running a separate source-specific operational-monitor canary.
+### Production activation
 
-That operational canary must prove:
+World Bank is now represented by the fixed `world-bank-india-gdp-api` monitor and runs after the four existing source cycles in the daily scheduler. Its production path remains source-specific rather than using the generic discovered-document queue.
 
-- the validated exact-byte World Bank path can execute under the normal monitoring and auto-ingest gates;
-- `TRUST_PROMOTION_ENABLED=false` throughout;
-- the monitor cadence remains 1440 minutes;
-- at most one World Bank evidence document is handled per due cycle;
-- successful or unchanged evidence produces normal monitor run/state audit history;
-- pre- and post-cycle cloud capacity remain safe;
-- zero claims remain the enforced result;
-- post-cycle production readiness remains clean.
+The recurring cycle preserves:
 
-Only after that succeeds may a separate activation PR add World Bank to the production monitor registry and daily scheduler.
+- `TRUST_PROMOTION_ENABLED=false`;
+- the 1440-minute cadence guard;
+- at most one World Bank evidence document per due cycle;
+- pre- and post-write capacity checks;
+- exact-byte B2/PostgreSQL/Qdrant reconciliation;
+- zero structured claims under the current temporal contract;
+- sequential, non-parallel evidence writes;
+- the existing once-daily 09:30 Asia/Kolkata scheduler cadence.
+
+The temporary one-shot operational-canary workflow is removed after its successful use.
 
 ## Candidate 2 — IMF SDMX API
 
@@ -130,21 +125,10 @@ Each international candidate progresses independently through:
 11. separate production activation PR and CI;
 12. post-merge scheduler/readiness/deployment verification.
 
-A successful World Bank milestone does not approve IMF.
+A successful World Bank activation does not approve IMF.
 
 ## Safety invariants
 
-The readiness report itself remains read-only. It:
+The readiness report itself remains read-only. It performs no candidate network request, widens no allow-list, performs no ingestion, mutates no evidence, creates no trust event, and leaves `TRUST_PROMOTION_ENABLED=false` policy untouched.
 
-- performs no candidate network request;
-- widens no allow-list;
-- creates no production monitor;
-- changes no recurring scheduler;
-- performs no ingestion;
-- mutates no evidence;
-- creates no trust event;
-- leaves `TRUST_PROMOTION_ENABLED=false` policy untouched;
-- deletes or rewrites no historical evidence;
-- introduces no paid infrastructure.
-
-World Bank production activation remains explicitly separate from the completed live canary and the current operational-monitor canary.
+Production activation does not delete or rewrite historical evidence, does not increase scheduler frequency, and introduces no paid infrastructure.
