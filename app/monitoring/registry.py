@@ -1,10 +1,12 @@
 from app.monitoring.models import MonitorDefinition
+from app.monitoring.world_bank import build_world_bank_operational_monitor
 from app.sources.registry import validate_source_url
 
 
 # Registry entries describe monitors that are approved/configured for source
-# discovery. Whether monitoring may run at all is controlled separately by the
-# global SOURCE_MONITORING_ENABLED safety gate, which remains false by default.
+# discovery or a source-specific operational path. Whether monitoring may run at
+# all is controlled separately by the global SOURCE_MONITORING_ENABLED safety
+# gate, which remains false by default.
 MONITORS: tuple[MonitorDefinition, ...] = (
     MonitorDefinition(
         monitor_id="rbi-press-releases-rss",
@@ -38,6 +40,7 @@ MONITORS: tuple[MonitorDefinition, ...] = (
         enabled=True,
         max_new_documents_per_run=10,
     ),
+    build_world_bank_operational_monitor(enabled=True),
 )
 
 
