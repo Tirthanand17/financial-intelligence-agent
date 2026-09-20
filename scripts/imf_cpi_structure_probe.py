@@ -9,8 +9,13 @@ import httpx
 
 
 BASE = "https://sdmxcentral.imf.org/sdmx/v2/structure"
-DATAFLOW_URL = f"{BASE}/dataflow/IMF/CPI/1.0/"
-DATASTRUCTURE_URL = f"{BASE}/datastructure/IMF/ECOFIN_DSD/1.0/"
+URLS = {
+    "constraint": f"{BASE}/contentconstraint/IMF/CPI_CONSTRAINT/latest/",
+    "data_domain": f"{BASE}/codelist/IMF/CL_DATADOMAIN/1.0/",
+    "ref_area": f"{BASE}/codelist/IMF/CL_REF_AREA/1.0/",
+    "indicator": f"{BASE}/codelist/IMF/CL_INDICATOR/1.0/",
+    "frequency": f"{BASE}/codelist/SDMX/CL_FREQ/1.0/",
+}
 MAX_BYTES = 2 * 1024 * 1024
 
 
@@ -34,13 +39,13 @@ def _fetch(url: str) -> ProbeResponse:
     if 300 <= response.status_code < 400:
         raise RuntimeError(f"redirect_rejected:{response.status_code}")
     if response.status_code != 200:
-        raise RuntimeError(f"unexpected_status:{response.status_code}")
+        raise RuntimeError(f"unexpected_status:{response.status_code}:{url}")
     content_type = response.headers.get("content-type", "").lower()
     if "xml" not in content_type:
         raise RuntimeError(f"unexpected_content_type:{content_type}")
     content = response.content
     if not content or len(content) > MAX_BYTES:
-        raise RuntimeError(f"unsafe_response_size:{len(content)}")
+        raise RuntimeError(f"unsafe_response_size:{len(content)}:{url}")
     return ProbeResponse(str(response.url), content_type, content)
 
 
@@ -48,96 +53,98 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _reference(node: ET.Element) -> dict[str, str] | None:
-    if _local(node.tag) != "Ref":
-        return None
-    values = {
-        key: value
-        for key in ("agencyID", "id", "version", "class", "package", "maintainableParentID")
-        if (value := node.attrib.get(key))
-    }
-    return values or None
+def _text_name(element: ET.Element) -> str:
+    for child in element:
+        if _local(child.tag) == "Name" and (child.text or "").strip():
+            return " ".join((child.text or "").split())
+    return ""
 
 
-def _all_references(root: ET.Element) -> list[dict[str, str]]:
+def _codelist_matches(root: ET.Element, wanted_codes: set[str], wanted_names: set[str]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    seen: set[tuple[tuple[str, str], ...]] = set()
-    for node in root.iter():
-        ref = _reference(node)
-        if ref is None:
-            continue
-        key = tuple(sorted(ref.items()))
-        if key in seen:
-            continue
-        seen.add(key)
-        rows.append(ref)
-    return rows
-
-
-def _dimensions(root: ET.Element) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
     for element in root.iter():
-        kind = _local(element.tag)
-        if kind not in {"Dimension", "TimeDimension", "MeasureDimension"}:
+        if _local(element.tag) != "Code":
             continue
-        dim_id = element.attrib.get("id")
-        if not dim_id:
-            continue
-        position_text = element.attrib.get("position")
-        try:
-            position = int(position_text) if position_text else None
-        except ValueError:
-            position = None
-        refs = [ref for node in element.iter() if (ref := _reference(node)) is not None]
-        rows.append(
-            {
-                "id": dim_id,
-                "kind": kind,
-                "position": position,
-                "references": refs,
-            }
-        )
-    rows.sort(key=lambda item: (item["position"] is None, item["position"] or 10_000, str(item["id"])))
+        code = element.attrib.get("id", "")
+        name = _text_name(element)
+        if code in wanted_codes or name.strip().lower() in wanted_names:
+            rows.append({"code": code, "name": name})
     return rows
+
+
+def _constraint_values(root: ET.Element) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = {}
+    for key_value in root.iter():
+        if _local(key_value.tag) not in {"KeyValue", "CubeRegionKeyValue"}:
+            continue
+        dimension = key_value.attrib.get("id")
+        if not dimension:
+            continue
+        found: list[str] = []
+        for child in key_value.iter():
+            if _local(child.tag) != "Value":
+                continue
+            value = child.attrib.get("value") or (child.text or "").strip()
+            if value:
+                found.append(value)
+        if found:
+            values.setdefault(dimension, [])
+            values[dimension].extend(found)
+    return {key: sorted(set(items)) for key, items in values.items()}
 
 
 def _summary(label: str, response: ProbeResponse) -> dict[str, object]:
-    root = ET.fromstring(response.content)
     return {
         "label": label,
         "url": response.url,
         "content_type": response.content_type,
         "bytes": len(response.content),
         "sha256": hashlib.sha256(response.content).hexdigest(),
-        "references": _all_references(root),
-        "dimensions": _dimensions(root),
     }
 
 
 def main() -> None:
-    dataflow = _summary("dataflow", _fetch(DATAFLOW_URL))
-    dsd = _summary("datastructure", _fetch(DATASTRUCTURE_URL))
-    print("RESULT_JSON: " + json.dumps([dataflow, dsd], sort_keys=True))
+    responses = {label: _fetch(url) for label, url in URLS.items()}
+    roots = {label: ET.fromstring(response.content) for label, response in responses.items()}
 
-    dsd_refs = [
-        ref
-        for ref in dataflow["references"]
-        if ref.get("class", "").lower() in {"datastructure", "datastructuredefinition"}
-    ]
-    if dsd_refs != [
-        {
-            "agencyID": "IMF",
-            "id": "ECOFIN_DSD",
-            "version": "1.0",
-            "class": "DataStructure",
-            "package": "datastructure",
-        }
-    ]:
-        raise SystemExit("FINAL: BLOCKED - CPI dataflow DSD reference changed unexpectedly")
-    if not dsd["dimensions"]:
-        raise SystemExit("FINAL: BLOCKED - ECOFIN CPI dimensions not discovered")
+    result = {
+        "responses": [_summary(label, response) for label, response in responses.items()],
+        "constraint_values": _constraint_values(roots["constraint"]),
+        "matches": {
+            "data_domain": _codelist_matches(
+                roots["data_domain"],
+                {"CPI"},
+                {"consumer price index", "prices"},
+            ),
+            "ref_area": _codelist_matches(
+                roots["ref_area"],
+                {"IND", "IN"},
+                {"india"},
+            ),
+            "indicator": _codelist_matches(
+                roots["indicator"],
+                {"PCPI_IX"},
+                {"consumer price index, all items", "consumer price index, all items, index"},
+            ),
+            "frequency": _codelist_matches(
+                roots["frequency"],
+                {"A", "Q", "M"},
+                {"annual", "quarterly", "monthly"},
+            ),
+        },
+    }
+    print("RESULT_JSON: " + json.dumps(result, sort_keys=True))
+
+    constraint = result["constraint_values"]
+    matches = result["matches"]
+    if not matches["ref_area"]:
+        raise SystemExit("FINAL: BLOCKED - India code not resolved from IMF CL_REF_AREA")
+    if not any(row["code"] == "PCPI_IX" for row in matches["indicator"]):
+        raise SystemExit("FINAL: BLOCKED - PCPI_IX not resolved from IMF CL_INDICATOR")
+    if not constraint:
+        raise SystemExit("FINAL: BLOCKED - CPI constraint returned no key values")
     print(
-        "FINAL: PASS-READ-ONLY - exact IMF CPI DSD dimensions/references discovered; "
+        "FINAL: PASS-READ-ONLY - IMF CPI constraint and key-code evidence resolved; "
         "no data or cloud writes performed."
     )
 
