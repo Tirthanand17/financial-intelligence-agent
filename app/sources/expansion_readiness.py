@@ -24,9 +24,6 @@ class ExpansionCandidate:
     bounded_live_canary_passed: bool = False
 
 
-# These candidates are documentation/readiness records. A candidate may become
-# activation-ready without being live; production activation remains a separate
-# registry/scheduler change.
 INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
     ExpansionCandidate(
         candidate_id="world-bank-indicators-v2",
@@ -87,8 +84,8 @@ def _candidate_snapshot(candidate: ExpansionCandidate) -> dict[str, object]:
         for name, passed in checks.items()
         if name != "already_in_live_monitor_registry" and not passed
     ]
-    if active_monitor_ids:
-        activation_blockers.append("unexpected_existing_live_monitor")
+    production_activated = bool(active_monitor_ids) and not activation_blockers
+    activation_ready = not active_monitor_ids and not activation_blockers
 
     return {
         "candidate_id": candidate.candidate_id,
@@ -103,31 +100,34 @@ def _candidate_snapshot(candidate: ExpansionCandidate) -> dict[str, object]:
         "checks": checks,
         "active_monitor_ids": active_monitor_ids,
         "activation_blockers": activation_blockers,
-        "activation_ready": not activation_blockers,
+        "activation_ready": activation_ready,
+        "production_activated": production_activated,
     }
 
 
 def build_international_expansion_readiness() -> dict[str, object]:
-    """Return a secret-free, non-operational source-expansion readiness report.
-
-    This report does not fetch candidate APIs, widen source allow-lists, create
-    monitors, persist discoveries, or alter scheduler/source-coverage policy.
-    """
+    """Return a secret-free, non-operational source-expansion readiness report."""
     candidates = [_candidate_snapshot(item) for item in INTERNATIONAL_EXPANSION_CANDIDATES]
+    activated_count = sum(1 for row in candidates if row["production_activated"])
     return {
         "mode": "read_only_source_expansion_readiness",
         "candidates": candidates,
         "summary": {
             "candidate_count": len(candidates),
             "activation_ready": sum(1 for row in candidates if row["activation_ready"]),
-            "blocked": sum(1 for row in candidates if not row["activation_ready"]),
-            "live_monitor_additions": 0,
+            "production_activated": activated_count,
+            "blocked": sum(
+                1
+                for row in candidates
+                if not row["activation_ready"] and not row["production_activated"]
+            ),
+            "live_monitor_additions": activated_count,
         },
         "rollout_gate": {
-            "current_live_source_set_unchanged": True,
+            "current_live_source_set_unchanged": False,
             "requires_initial_scheduler_rollout_closeout_before_activation": True,
             "initial_scheduler_rollout_closed": True,
-            "activation_performed_by_this_milestone": False,
+            "activation_performed_by_this_milestone": True,
         },
         "safety": {
             "read_only": True,
@@ -138,9 +138,9 @@ def build_international_expansion_readiness() -> dict[str, object]:
             "changes_ingestion": False,
             "mutates_evidence": False,
             "note": (
-                "World Bank has passed its bounded exact-byte live canary and is eligible for a separate "
-                "production activation decision, but is not yet in the live monitor registry. IMF remains "
-                "blocked pending fresh endpoint verification and source-specific implementation."
+                "World Bank passed bounded exact-byte and operational-monitor canaries and is now represented "
+                "as a bounded production monitor. IMF remains blocked pending fresh endpoint verification and "
+                "source-specific implementation."
             ),
         },
     }

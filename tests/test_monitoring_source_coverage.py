@@ -16,11 +16,15 @@ def test_current_source_coverage_identifies_primary_india_gaps() -> None:
     assert tuple(row.source_id for row in gaps) == ()
 
 
-def test_coverage_keeps_secondary_sources_visible_without_promoting_them() -> None:
+def test_coverage_reports_world_bank_as_bounded_secondary_monitor() -> None:
     coverage = build_source_coverage(TRUSTED_SOURCES, MONITORS)
     by_id = {row.source_id: row for row in coverage}
 
     assert by_id["world_bank"].authority_level.value == "B"
+    assert by_id["world_bank"].monitored is True
+    assert by_id["world_bank"].monitor_ids == ("world-bank-india-gdp-api",)
+
     assert by_id["imf"].authority_level.value == "B"
+    assert by_id["imf"].monitored is False
     assert by_id["ddnews"].authority_level.value == "B"
     assert by_id["akashvani"].authority_level.value == "B"

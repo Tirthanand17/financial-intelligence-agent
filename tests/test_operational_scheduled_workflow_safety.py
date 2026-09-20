@@ -20,6 +20,9 @@ def test_scheduler_keeps_trust_disabled_and_bounds_each_source() -> None:
     assert 'TRUST_PROMOTION_ENABLED: "true"' not in text
     assert text.count('TRUST_PROMOTION_ENABLED: "false"') >= 3
     assert '--processing-limit 1' in text
+    assert 'scripts/world_bank_operational_cycle.py' in text
+    assert '--allow-network' in text
+    assert '--allow-write' in text
 
 
 def test_scheduler_uses_only_registered_fixed_monitors() -> None:
@@ -29,9 +32,20 @@ def test_scheduler_uses_only_registered_fixed_monitors() -> None:
         'sebi-rss',
         'nse-daily-buyback-rss',
         'mospi-latest-releases-api',
+        'world-bank-india-gdp-api',
     ):
         assert monitor in text
     assert '${{ inputs.monitor_id }}' not in text
+
+
+def test_world_bank_runs_after_existing_sources_and_remains_serial() -> None:
+    text = _workflow_text()
+    generic_loop = 'for monitor in "${monitors[@]}"'
+    world_bank_runner = 'python scripts/world_bank_operational_cycle.py'
+    assert generic_loop in text
+    assert world_bank_runner in text
+    assert text.index(world_bank_runner) > text.index(generic_loop)
+    assert 'matrix:' not in text
 
 
 def test_scheduler_runs_readiness_before_and_after_writes() -> None:
@@ -60,8 +74,6 @@ def test_failure_alert_is_failure_only_deduplicated_and_secret_minimized() -> No
     assert 'issues.createComment' in text
     assert 'issues.create' in text
 
-    # The alert body is intentionally metadata-only. Provider secret expressions
-    # remain scoped to the operational job and are never interpolated into alerts.
     alert_section = text.split('operational-failure-alert:', 1)[1]
     for secret_name in (
         'DATABASE_URL',
