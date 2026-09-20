@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,10 +32,17 @@ class Settings(BaseSettings):
     chunk_size_chars: int = 3500
     chunk_overlap_chars: int = 400
 
-    # Private read-only dashboard. Both values are required before the dashboard
+    # Existing operator identity. Both values are required before protected
     # routes become available; they must be supplied through deployment secrets.
     dashboard_username: str | None = None
     dashboard_password: str | None = None
+
+    # Optional inspection-only identity. Leaving both unset preserves the current
+    # single-operator behavior exactly. If enabled later, this identity may access
+    # protected GET dashboard/API-v1 evidence surfaces but never operator-only
+    # manual POST routes such as /ingest or /ask.
+    dashboard_readonly_username: str | None = None
+    dashboard_readonly_password: str | None = None
 
     # Phase 4 trust promotion is deliberately disabled by default. The code path
     # may be exercised in isolated tests, but live ingestion must not upgrade a
@@ -91,6 +98,16 @@ class Settings(BaseSettings):
         if not 1 <= value <= 50:
             raise ValueError("monitor capacity low watermark must be between 1 and 50")
         return value
+
+    @model_validator(mode="after")
+    def complete_optional_readonly_credentials(self) -> "Settings":
+        username_set = bool((self.dashboard_readonly_username or "").strip())
+        password_set = bool((self.dashboard_readonly_password or "").strip())
+        if username_set != password_set:
+            raise ValueError(
+                "dashboard read-only username/password must be configured together"
+            )
+        return self
 
 
 @lru_cache
