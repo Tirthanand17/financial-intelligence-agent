@@ -9,7 +9,7 @@ import httpx
 
 
 DATA_URL = (
-    "https://sdmxcentral.imf.org/sdmx/v2/data/dataflow/IMF/CPI/1.0/"
+    "https://sdmxcentral.imf.org/sdmx/v2/data/IMF,CPI,1.0/"
     "CPI.IN.PCPI_IX._Z.M"
 )
 MAX_BYTES = 256 * 1024
@@ -37,6 +37,19 @@ def main() -> None:
     if 300 <= response.status_code < 400:
         raise SystemExit(f"FINAL: BLOCKED - redirect rejected ({response.status_code})")
     if response.status_code != 200:
+        print(
+            "RESULT_JSON: "
+            + json.dumps(
+                {
+                    "url": str(response.url),
+                    "status": response.status_code,
+                    "content_type": response.headers.get("content-type", "").lower(),
+                    "bytes": len(response.content),
+                    "body_prefix": response.text[:200].replace("\n", " "),
+                },
+                sort_keys=True,
+            )
+        )
         raise SystemExit(f"FINAL: BLOCKED - unexpected IMF data status {response.status_code}")
 
     content_type = response.headers.get("content-type", "").lower()
