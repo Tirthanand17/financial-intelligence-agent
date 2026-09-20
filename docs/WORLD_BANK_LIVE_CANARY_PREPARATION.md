@@ -1,22 +1,85 @@
-# World Bank Live Canary Preparation
+# World Bank Live Canary Record
 
 ## Status
 
-Prepared but **not executed** by this milestone.
+The first bounded World Bank live canary was **executed successfully on 20 September 2026** after the initial seven-day scheduler rollout was formally closed.
 
-The production source set remains RBI, SEBI, NSE, and MoSPI. No World Bank monitor is added and the recurring scheduler is unchanged.
+The production source set remains RBI, SEBI, NSE, and MoSPI at this stage. The successful canary does **not** itself activate World Bank in recurring monitoring, and it does not change scheduler cadence or trust policy.
 
-The initial seven-day scheduler observation window is now formally closed through PR #68 with `FINAL: ROLLOUT-CLOSEOUT-READY`. That removes the rollout-history blocker but does not itself execute or activate World Bank.
+The temporary one-shot GitHub Actions trigger used for the live canary is removed by the same cleanup milestone that records this result, so an unnecessary live-write command surface is not left behind.
 
-## Purpose
+## Executed canary
 
-This milestone prepares the smallest possible controlled live validation for the existing World Bank Indicators API candidate. It is intentionally separate from source activation.
+GitHub Actions run:
 
-The canary is designed to prove one real provider response can pass the already-reviewed bounded API contract and the existing exact-byte PostgreSQL/B2/Qdrant persistence path without inventing claim dates or creating structured claims.
+- run id: `35503947233`
+- job id: `106060458340`
+- audited `main` commit: `5fb743f40ae0f25c8bc3b16adbb5c324a1c916dd`
+- indicator: `NY.GDP.MKTP.KD.ZG`
+- requested recent observations: `3`
+- result status: `indexed`
+- document id: `fe64eb55-0f96-4698-a53b-35fe10023769`
+- SHA-256: `98acdb9979bafba647545425d085193a2c5aec912dbc8f5f088120c394f67fe2`
+- Qdrant/evidence chunks: `3`
+- structured claims created: `0`
+- accepted annual observation periods: `2025`, `2024`, `2023`
+- World Bank `lastupdated`: `2026-07-13` — retained only as source metadata, **not** a claim publication/effective date
 
-## Manual execution contract
+The live response passed the fixed adapter scope, exact-byte validation, B2 replay/hash verification, PostgreSQL persistence and Qdrant reconciliation. No publication/effective date was inferred from annual observation periods or source metadata.
 
-The canary CLI is:
+## Pre-write readiness
+
+Immediately before the live canary:
+
+- `SOURCE_MONITORING_ENABLED=false`
+- `SOURCE_AUTO_INGEST_ENABLED=false`
+- `TRUST_PROMOTION_ENABLED=false`
+- capacity allowed: true
+- required live monitors ready: 4/4
+- queue metadata anomalies: 0
+- linked-document anomalies: 0
+- documents: 43
+- integrity failures: 0
+- expected Qdrant points: 170
+- actual Qdrant points: 170
+- claims: 59
+- orphan claims: 0
+- quality-failed verified/trusted claims: 0
+- trust events: 0
+- final readiness: `FINAL: PASS-READ-ONLY`
+
+## Post-write reconciliation
+
+Immediately after the canary:
+
+- all three normal global gates remained false;
+- capacity remained allowed with no blockers;
+- required live monitors remained ready: 4/4;
+- queue metadata anomalies remained 0;
+- linked-document anomalies remained 0;
+- documents increased from 43 to 44;
+- integrity failures remained 0;
+- expected Qdrant points increased from 170 to 173;
+- actual Qdrant points increased from 170 to 173;
+- claims remained 59;
+- orphan claims remained 0;
+- quality-failed verified/trusted claims remained 0;
+- trust events remained 0;
+- final readiness remained `FINAL: PASS-READ-ONLY`.
+
+This is the expected footprint for one World Bank JSON document containing three evidence chunks and zero structured claims.
+
+## Idempotency evidence
+
+The live canary was intentionally not repeated merely to prove idempotency because a second provider request could return different bytes and unnecessarily create a second legitimate evidence version.
+
+The persistence implementation has a deterministic regression test that persists the same exact bytes twice and requires the second call to return `already_indexed`, reuse the same document id, avoid another Qdrant indexing call, keep one document row, and keep zero claim rows.
+
+This preserves the one-live-write bound while still validating exact-byte idempotency in the persistence contract.
+
+## Execution contract retained in code
+
+The reusable CLI remains:
 
 `python scripts/world_bank_live_canary.py`
 
@@ -26,35 +89,9 @@ Execution is blocked unless all three explicit approvals are supplied at runtime
 - `--allow-write`
 - `--confirm WORLD_BANK_LIVE_CANARY`
 
-The indicator must be one of the fixed reviewed codes and `recent_observations` is bounded to 1–5.
+The indicator must be one of the fixed reviewed codes and `recent_observations` is bounded to 1–5. The runner is not imported by the recurring scheduler or live monitor registry.
 
-This runner is not imported by the recurring scheduler or live monitor registry.
-
-## One-shot GitHub Actions execution gate
-
-For the first live canary, `.github/workflows/world-bank-live-canary-once.yml` provides a temporary secret-safe execution environment using the repository's already-configured cloud secrets and capacity variables.
-
-It does not add a schedule or `workflow_dispatch` surface. The job can start only from a newly created PR conversation comment when every condition below is true:
-
-- the comment is on PR #68, the recorded rollout-closeout PR;
-- the comment author is exactly `Tirthanand17`;
-- the comment body exactly equals `/run-world-bank-live-canary-2026-09-20`;
-- the workflow is already present on default-branch `main`.
-
-The workflow has read-only repository contents permission, serial non-cancelling concurrency, and a fixed canary contract:
-
-- indicator `NY.GDP.MKTP.KD.ZG`;
-- exactly 3 recent observations maximum;
-- explicit network/write/confirmation flags;
-- all normal monitoring/auto-ingest/trust gates false;
-- fail-closed production readiness before and after the write;
-- zero structured claims required;
-- reconciled `indexed` or idempotent `already_indexed` persistence state required;
-- valid SHA-256, document id, and bounded observation/chunk reconciliation required.
-
-The workflow is temporary. After the first controlled execution and evidence review, remove this one-shot trigger in a cleanup PR rather than leaving an unnecessary live-write command surface in the repository.
-
-## Pre-write safety gates
+## Safety contract
 
 Before network activity/persistence the runner requires:
 
@@ -63,11 +100,7 @@ Before network activity/persistence the runner requires:
 - `SOURCE_AUTO_INGEST_ENABLED=false`;
 - measured Supabase, B2, and Qdrant capacity all inside the approved project ceilings.
 
-Missing/unknown/low/exhausted capacity blocks the canary.
-
-The one-shot workflow additionally verifies the recorded rollout closeout and requires current production readiness to end in `FINAL: PASS-READ-ONLY` before the canary command is allowed to run.
-
-## Network contract
+Missing, unknown, low, or exhausted capacity blocks the canary.
 
 The request is constructed only by the World Bank source adapter:
 
@@ -84,16 +117,14 @@ The request is constructed only by the World Bank source adapter:
 
 No arbitrary URL or host is accepted.
 
-## Persistence and reconciliation
+## Persistence and reconciliation contract
 
-The exact bytes returned by the validated request are passed directly to `persist_world_bank_payload` with their SHA-256.
+The exact accepted bytes are passed to `persist_world_bank_payload` with their SHA-256. The persistence path:
 
-The existing persistence path then:
-
-1. validates the same bounded URL contract again;
+1. validates the bounded URL contract again;
 2. verifies the expected SHA-256;
 3. parses the exact accepted bytes;
-4. preserves the exact JSON bytes in private B2;
+4. preserves exact JSON bytes in private B2;
 5. replays the B2 object and verifies the hash;
 6. writes provenance/document metadata in PostgreSQL;
 7. writes deterministic evidence chunks to Qdrant;
@@ -101,24 +132,18 @@ The existing persistence path then:
 9. leaves the document `reconciliation_required` on incomplete reconciliation rather than deleting evidence;
 10. creates **zero structured claims** because annual observation periods are not publication/effective dates in the current claim model.
 
-After the write, capacity is measured again. If a safety ceiling is crossed, the run fails closed while retaining the already-preserved evidence.
+After a write, capacity is measured again. If a safety ceiling is crossed, the operation fails closed while retaining already-preserved evidence.
 
-## What success would mean
+## What the successful canary proves
 
-A successful live canary would establish that one bounded World Bank provider response can be downloaded, preserved and reconciled end-to-end under the current evidence policy.
+The result establishes that one bounded real World Bank provider response can be downloaded, preserved and reconciled end-to-end under the current evidence policy.
 
-It would **not** by itself mean that:
+It does **not** by itself mean that:
 
 - World Bank is activated in daily monitoring;
-- its annual observations are eligible as current dated claims;
+- annual observations are eligible as dated claims;
 - trust promotion is enabled;
-- the scheduler should process World Bank automatically;
-- IMF or any other international source is approved.
+- the scheduler may increase cadence;
+- IMF or another international source is approved.
 
-Those require separate review/activation decisions.
-
-## Validation
-
-Tests require the explicit network/write/confirmation triplet, block unsafe runtime gates, enforce pre/post capacity checks, verify the exact downloaded byte object and SHA are passed to persistence, and reject any unexpected structured-claim creation.
-
-Separate workflow-safety tests require the temporary execution workflow to remain comment-triggered, owner/PR/command locked, serial, minimally permissioned, fixed to the bounded World Bank contract, and separate from normal source monitoring.
+A production activation, if adopted, must be a separate reviewed milestone with a bounded monitor/processing contract, unchanged trust policy, tests, CI, post-merge verification, and no weakening of the existing four production sources.
