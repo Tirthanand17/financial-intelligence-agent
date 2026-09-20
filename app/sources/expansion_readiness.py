@@ -24,9 +24,9 @@ class ExpansionCandidate:
     bounded_live_canary_passed: bool = False
 
 
-# These candidates are documentation/readiness records only. They are intentionally
-# NOT added to app.monitoring.registry.MONITORS while the initial four-source
-# production rollout remains under observation.
+# These candidates are documentation/readiness records. A candidate may become
+# activation-ready without being live; production activation remains a separate
+# registry/scheduler change.
 INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
     ExpansionCandidate(
         candidate_id="world-bank-indicators-v2",
@@ -40,6 +40,8 @@ INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
         persistence_path_implemented=True,
         offline_exact_byte_contract_validated=True,
         live_canary_runner_implemented=True,
+        exact_byte_reconciliation_validated=True,
+        bounded_live_canary_passed=True,
     ),
     ExpansionCandidate(
         candidate_id="imf-sdmx-v2",
@@ -75,8 +77,6 @@ def _candidate_snapshot(candidate: ExpansionCandidate) -> dict[str, object]:
         "persistence_path_implemented": candidate.persistence_path_implemented,
         "offline_exact_byte_contract_validated": candidate.offline_exact_byte_contract_validated,
         "live_canary_runner_implemented": candidate.live_canary_runner_implemented,
-        # These remain false until a controlled live cross-store canary proves
-        # B2/PostgreSQL/Qdrant reconciliation against actual provider bytes.
         "exact_byte_reconciliation_validated": candidate.exact_byte_reconciliation_validated,
         "bounded_live_canary_passed": candidate.bounded_live_canary_passed,
         "already_in_live_monitor_registry": bool(active_monitor_ids),
@@ -126,6 +126,7 @@ def build_international_expansion_readiness() -> dict[str, object]:
         "rollout_gate": {
             "current_live_source_set_unchanged": True,
             "requires_initial_scheduler_rollout_closeout_before_activation": True,
+            "initial_scheduler_rollout_closed": True,
             "activation_performed_by_this_milestone": False,
         },
         "safety": {
@@ -137,10 +138,9 @@ def build_international_expansion_readiness() -> dict[str, object]:
             "changes_ingestion": False,
             "mutates_evidence": False,
             "note": (
-                "Candidate metadata documents the work still required before any international source is activated. "
-                "A manual live-canary runner may exist without having been executed; runner readiness does not equal "
-                "live-canary success. Offline persistence-path tests do not count as live exact-byte reconciliation. "
-                "The existing RBI/SEBI/NSE/MoSPI production source set remains unchanged."
+                "World Bank has passed its bounded exact-byte live canary and is eligible for a separate "
+                "production activation decision, but is not yet in the live monitor registry. IMF remains "
+                "blocked pending fresh endpoint verification and source-specific implementation."
             ),
         },
     }

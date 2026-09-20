@@ -1,0 +1,139 @@
+name: One-shot World Bank operational monitor canary
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: world-bank-operational-canary-once
+  cancel-in-progress: false
+
+jobs:
+  world-bank-operational-canary:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.issue.number == 70 &&
+      github.event.comment.user.login == 'Tirthanand17' &&
+      github.event.comment.body == '/run-world-bank-operational-canary-2026-09-20'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
+      S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+      S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      S3_REGION: ${{ vars.S3_REGION }}
+      MONITOR_SUPABASE_MAX_MB: ${{ vars.MONITOR_SUPABASE_MAX_MB }}
+      MONITOR_B2_MAX_MB: ${{ vars.MONITOR_B2_MAX_MB }}
+      MONITOR_QDRANT_MAX_POINTS: ${{ vars.MONITOR_QDRANT_MAX_POINTS }}
+      MONITOR_CAPACITY_LOW_WATERMARK_PERCENT: ${{ vars.MONITOR_CAPACITY_LOW_WATERMARK_PERCENT }}
+
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Require explicit cloud configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          required=(DATABASE_URL QDRANT_URL QDRANT_API_KEY S3_ENDPOINT_URL S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET S3_REGION MONITOR_SUPABASE_MAX_MB MONITOR_B2_MAX_MB MONITOR_QDRANT_MAX_POINTS MONITOR_CAPACITY_LOW_WATERMARK_PERCENT)
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required Actions secret/variable: ${name}"
+              missing=1
+            fi
+          done
+          test "${missing}" -eq 0
+
+      - name: Fail-closed pre-canary production readiness
+        env:
+          SOURCE_MONITORING_ENABLED: "false"
+          SOURCE_AUTO_INGEST_ENABLED: "false"
+          TRUST_PROMOTION_ENABLED: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/phase17_production_readiness.py | tee /tmp/world-bank-operational-pre.log
+          grep -q '^FINAL: PASS-READ-ONLY' /tmp/world-bank-operational-pre.log
+
+      - name: Run one bounded World Bank operational monitor canary
+        env:
+          SOURCE_MONITORING_ENABLED: "true"
+          SOURCE_AUTO_INGEST_ENABLED: "true"
+          TRUST_PROMOTION_ENABLED: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/world_bank_operational_canary.py \
+            --allow-network \
+            --allow-write \
+            --confirm WORLD_BANK_OPERATIONAL_CANARY | tee /tmp/world-bank-operational-result.log
+          grep -Eq '^FINAL: PASS-(COMMITTED|NO-CHANGE)' /tmp/world-bank-operational-result.log
+
+      - name: Validate operational canary result
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          lines = Path('/tmp/world-bank-operational-result.log').read_text(encoding='utf-8').splitlines()
+          result_line = next((line for line in lines if line.startswith('RESULT_JSON: ')), None)
+          if result_line is None:
+              raise SystemExit('Missing World Bank operational result JSON')
+          result = json.loads(result_line.removeprefix('RESULT_JSON: '))
+          if result.get('monitor_id') != 'world-bank-india-gdp-api':
+              raise SystemExit('Unexpected World Bank monitor id')
+          if result.get('performed') is not True:
+              raise SystemExit('World Bank operational canary did not perform a due cycle')
+          if result.get('outcome') not in {'success', 'no_change'}:
+              raise SystemExit('World Bank operational canary did not finish ready')
+          if result.get('status') not in {'indexed', 'already_indexed'}:
+              raise SystemExit('World Bank operational persistence did not reconcile')
+          if result.get('claim_count') != 0:
+              raise SystemExit('World Bank operational canary unexpectedly created claims')
+          if result.get('chunk_count') not in {1, 2, 3}:
+              raise SystemExit('World Bank operational chunk count is outside the fixed bound')
+          periods = result.get('observation_periods')
+          if not isinstance(periods, list) or len(periods) != result.get('chunk_count'):
+              raise SystemExit('World Bank observation periods do not reconcile to chunks')
+          digest = result.get('sha256')
+          if not isinstance(digest, str) or re.fullmatch(r'[0-9a-f]{64}', digest) is None:
+              raise SystemExit('World Bank operational SHA-256 is invalid')
+          if result.get('blocking_services'):
+              raise SystemExit('World Bank operational canary ended with capacity blockers')
+          PY
+
+      - name: Fail-closed post-canary production readiness
+        env:
+          SOURCE_MONITORING_ENABLED: "false"
+          SOURCE_AUTO_INGEST_ENABLED: "false"
+          TRUST_PROMOTION_ENABLED: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/phase17_production_readiness.py | tee /tmp/world-bank-operational-post.log
+          grep -q '^FINAL: PASS-READ-ONLY' /tmp/world-bank-operational-post.log

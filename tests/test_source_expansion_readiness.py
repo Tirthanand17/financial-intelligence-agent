@@ -9,17 +9,18 @@ from app.monitoring.registry import MONITORS
 client = TestClient(app)
 
 
-def test_international_candidates_are_blocked_and_do_not_change_live_monitors() -> None:
+def test_world_bank_is_activation_ready_but_not_live_and_imf_remains_blocked() -> None:
     result = expansion.build_international_expansion_readiness()
 
     assert result["summary"] == {
         "candidate_count": 2,
-        "activation_ready": 0,
-        "blocked": 2,
+        "activation_ready": 1,
+        "blocked": 1,
         "live_monitor_additions": 0,
     }
     assert result["rollout_gate"]["current_live_source_set_unchanged"] is True
     assert result["rollout_gate"]["requires_initial_scheduler_rollout_closeout_before_activation"] is True
+    assert result["rollout_gate"]["initial_scheduler_rollout_closed"] is True
     assert result["rollout_gate"]["activation_performed_by_this_milestone"] is False
 
     by_source = {row["source_id"]: row for row in result["candidates"]}
@@ -36,14 +37,11 @@ def test_international_candidates_are_blocked_and_do_not_change_live_monitors() 
     assert world_bank["checks"]["persistence_path_implemented"] is True
     assert world_bank["checks"]["offline_exact_byte_contract_validated"] is True
     assert world_bank["checks"]["live_canary_runner_implemented"] is True
-    assert world_bank["checks"]["exact_byte_reconciliation_validated"] is False
-    assert world_bank["checks"]["bounded_live_canary_passed"] is False
-    assert "persistence_path_implemented" not in world_bank["activation_blockers"]
-    assert "offline_exact_byte_contract_validated" not in world_bank["activation_blockers"]
-    assert "live_canary_runner_implemented" not in world_bank["activation_blockers"]
-    assert "exact_byte_reconciliation_validated" in world_bank["activation_blockers"]
-    assert "bounded_live_canary_passed" in world_bank["activation_blockers"]
-    assert world_bank["activation_ready"] is False
+    assert world_bank["checks"]["exact_byte_reconciliation_validated"] is True
+    assert world_bank["checks"]["bounded_live_canary_passed"] is True
+    assert world_bank["checks"]["already_in_live_monitor_registry"] is False
+    assert world_bank["activation_blockers"] == []
+    assert world_bank["activation_ready"] is True
 
     imf = by_source["imf"]
     assert imf["candidate_id"] == "imf-sdmx-v2"
@@ -101,5 +99,6 @@ def test_source_expansion_routes_reuse_dashboard_auth_and_are_read_only(monkeypa
     assert status.status_code == 200
     assert status.headers["cache-control"] == "no-store"
     payload = status.json()
+    assert payload["summary"]["activation_ready"] == 1
     assert payload["summary"]["live_monitor_additions"] == 0
     assert payload["rollout_gate"]["activation_performed_by_this_milestone"] is False
