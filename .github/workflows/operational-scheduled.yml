@@ -93,6 +93,12 @@ jobs:
             grep -Eq '^FINAL: PASS-(COMMITTED|MONITOR-ONLY|NOT-DUE)' "/tmp/${monitor}.log"
           done
 
+          echo "Running bounded source-specific World Bank cycle"
+          python scripts/world_bank_operational_cycle.py \
+            --allow-network \
+            --allow-write | tee /tmp/world-bank-india-gdp-api.log
+          grep -Eq '^FINAL: PASS-(COMMITTED|NO-CHANGE|NOT-DUE)' /tmp/world-bank-india-gdp-api.log
+
       - name: Fail-closed post-run readiness
         env:
           SOURCE_MONITORING_ENABLED: "false"
