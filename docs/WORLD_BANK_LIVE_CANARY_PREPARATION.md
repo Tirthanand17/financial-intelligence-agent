@@ -6,6 +6,8 @@ Prepared but **not executed** by this milestone.
 
 The production source set remains RBI, SEBI, NSE, and MoSPI. No World Bank monitor is added and the recurring scheduler is unchanged.
 
+The initial seven-day scheduler observation window is now formally closed through PR #68 with `FINAL: ROLLOUT-CLOSEOUT-READY`. That removes the rollout-history blocker but does not itself execute or activate World Bank.
+
 ## Purpose
 
 This milestone prepares the smallest possible controlled live validation for the existing World Bank Indicators API candidate. It is intentionally separate from source activation.
@@ -28,6 +30,30 @@ The indicator must be one of the fixed reviewed codes and `recent_observations` 
 
 This runner is not imported by the recurring scheduler or live monitor registry.
 
+## One-shot GitHub Actions execution gate
+
+For the first live canary, `.github/workflows/world-bank-live-canary-once.yml` provides a temporary secret-safe execution environment using the repository's already-configured cloud secrets and capacity variables.
+
+It does not add a schedule or `workflow_dispatch` surface. The job can start only from a newly created PR conversation comment when every condition below is true:
+
+- the comment is on PR #68, the recorded rollout-closeout PR;
+- the comment author is exactly `Tirthanand17`;
+- the comment body exactly equals `/run-world-bank-live-canary-2026-09-20`;
+- the workflow is already present on default-branch `main`.
+
+The workflow has read-only repository contents permission, serial non-cancelling concurrency, and a fixed canary contract:
+
+- indicator `NY.GDP.MKTP.KD.ZG`;
+- exactly 3 recent observations maximum;
+- explicit network/write/confirmation flags;
+- all normal monitoring/auto-ingest/trust gates false;
+- fail-closed production readiness before and after the write;
+- zero structured claims required;
+- reconciled `indexed` or idempotent `already_indexed` persistence state required;
+- valid SHA-256, document id, and bounded observation/chunk reconciliation required.
+
+The workflow is temporary. After the first controlled execution and evidence review, remove this one-shot trigger in a cleanup PR rather than leaving an unnecessary live-write command surface in the repository.
+
 ## Pre-write safety gates
 
 Before network activity/persistence the runner requires:
@@ -38,6 +64,8 @@ Before network activity/persistence the runner requires:
 - measured Supabase, B2, and Qdrant capacity all inside the approved project ceilings.
 
 Missing/unknown/low/exhausted capacity blocks the canary.
+
+The one-shot workflow additionally verifies the recorded rollout closeout and requires current production readiness to end in `FINAL: PASS-READ-ONLY` before the canary command is allowed to run.
 
 ## Network contract
 
@@ -77,7 +105,7 @@ After the write, capacity is measured again. If a safety ceiling is crossed, the
 
 ## What success would mean
 
-A successful manual live canary would establish that one bounded World Bank provider response can be downloaded, preserved and reconciled end-to-end under the current evidence policy.
+A successful live canary would establish that one bounded World Bank provider response can be downloaded, preserved and reconciled end-to-end under the current evidence policy.
 
 It would **not** by itself mean that:
 
@@ -89,10 +117,8 @@ It would **not** by itself mean that:
 
 Those require separate review/activation decisions.
 
-## Why it is not executed yet
-
-The initial seven-day four-source scheduler observation must be fully closed out first. Preparing this runner does not bypass that operational gate.
-
 ## Validation
 
 Tests require the explicit network/write/confirmation triplet, block unsafe runtime gates, enforce pre/post capacity checks, verify the exact downloaded byte object and SHA are passed to persistence, and reject any unexpected structured-claim creation.
+
+Separate workflow-safety tests require the temporary execution workflow to remain comment-triggered, owner/PR/command locked, serial, minimally permissioned, fixed to the bounded World Bank contract, and separate from normal source monitoring.
