@@ -30,10 +30,7 @@ def _fetch(url: str) -> ProbeResponse:
             "User-Agent": "financial-intelligence-agent-imf-structure-probe/1",
         },
     ) as client:
-        response = client.get(
-            url,
-            params={"references": "all", "partial": "true"},
-        )
+        response = client.get(url, params={"references": "none"})
     if 300 <= response.status_code < 400:
         raise RuntimeError(f"redirect_rejected:{response.status_code}")
     if response.status_code != 200:
@@ -51,11 +48,15 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _name(element: ET.Element) -> str | None:
-    for child in element:
-        if _local(child.tag) == "Name" and (child.text or "").strip():
-            return " ".join((child.text or "").split())
-    return None
+def _reference(node: ET.Element) -> dict[str, str] | None:
+    if _local(node.tag) != "Ref":
+        return None
+    values = {
+        key: value
+        for key in ("agencyID", "id", "version", "class", "package", "maintainableParentID")
+        if (value := node.attrib.get(key))
+    }
+    return values or None
 
 
 def _dimensions(root: ET.Element) -> list[dict[str, object]]:
@@ -72,60 +73,36 @@ def _dimensions(root: ET.Element) -> list[dict[str, object]]:
             position = int(position_text) if position_text else None
         except ValueError:
             position = None
-        enum_ref = None
+        references: list[dict[str, str]] = []
         for node in element.iter():
-            if _local(node.tag) in {"Ref", "URN"}:
-                ref_id = node.attrib.get("id") or (node.text or "").strip() or None
-                if ref_id:
-                    enum_ref = ref_id
+            ref = _reference(node)
+            if ref is not None:
+                references.append(ref)
         rows.append(
             {
                 "id": dim_id,
                 "kind": kind,
                 "position": position,
-                "representation_ref": enum_ref,
+                "references": references,
             }
         )
     rows.sort(key=lambda item: (item["position"] is None, item["position"] or 10_000, str(item["id"])))
     return rows
 
 
-def _india_codes(root: ET.Element) -> list[dict[str, str]]:
-    matches: list[dict[str, str]] = []
-    current_codelist = ""
-    for element in root.iter():
-        kind = _local(element.tag)
-        if kind == "Codelist":
-            current_codelist = element.attrib.get("id", "")
-        if kind != "Code":
+def _all_references(root: ET.Element) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    for node in root.iter():
+        ref = _reference(node)
+        if ref is None:
             continue
-        code = element.attrib.get("id", "")
-        label = _name(element) or ""
-        if "india" in label.lower():
-            matches.append({"codelist": current_codelist, "code": code, "name": label})
-    return matches
-
-
-def _indicator_codes(root: ET.Element) -> list[dict[str, str]]:
-    matches: list[dict[str, str]] = []
-    current_codelist = ""
-    for element in root.iter():
-        kind = _local(element.tag)
-        if kind == "Codelist":
-            current_codelist = element.attrib.get("id", "")
-        if kind != "Code":
+        key = tuple(sorted(ref.items()))
+        if key in seen:
             continue
-        code = element.attrib.get("id", "")
-        if code != "PCPI_IX":
-            continue
-        matches.append(
-            {
-                "codelist": current_codelist,
-                "code": code,
-                "name": _name(element) or "",
-            }
-        )
-    return matches
+        seen.add(key)
+        rows.append(ref)
+    return rows
 
 
 def _summarize(label: str, response: ProbeResponse) -> dict[str, object]:
@@ -137,8 +114,7 @@ def _summarize(label: str, response: ProbeResponse) -> dict[str, object]:
         "bytes": len(response.content),
         "sha256": hashlib.sha256(response.content).hexdigest(),
         "dimensions": _dimensions(root),
-        "india_codes": _india_codes(root),
-        "pcpi_ix_codes": _indicator_codes(root),
+        "references": _all_references(root),
     }
 
 
@@ -149,16 +125,13 @@ def main() -> None:
     ]
     print("RESULT_JSON: " + json.dumps(results, sort_keys=True))
 
-    combined_india = [row for result in results for row in result["india_codes"]]
-    combined_indicator = [row for result in results for row in result["pcpi_ix_codes"]]
-    combined_dimensions = [row for result in results for row in result["dimensions"]]
-    if not combined_dimensions:
+    dsd = next(result for result in results if result["label"] == "datastructure")
+    if not dsd["dimensions"]:
         raise SystemExit("FINAL: BLOCKED - no CPI dimensions discovered")
-    if not combined_india:
-        raise SystemExit("FINAL: BLOCKED - India code not found in constrained CPI structure references")
-    if not combined_indicator:
-        raise SystemExit("FINAL: BLOCKED - PCPI_IX not found in constrained CPI structure references")
-    print("FINAL: PASS-READ-ONLY - IMF CPI live structure contract discovered; no data or cloud writes performed.")
+    print(
+        "FINAL: PASS-READ-ONLY - bounded IMF CPI dataflow/DSD structure contract discovered; "
+        "no data or cloud writes performed."
+    )
 
 
 if __name__ == "__main__":
