@@ -10,7 +10,6 @@ import httpx
 
 BASE = "https://sdmxcentral.imf.org/sdmx/v2/structure"
 DATAFLOW_URL = f"{BASE}/dataflow/IMF/CPI/1.0/"
-DATASTRUCTURE_URL = f"{BASE}/datastructure/IMF/CPI/1.0/"
 MAX_BYTES = 2 * 1024 * 1024
 
 
@@ -59,37 +58,6 @@ def _reference(node: ET.Element) -> dict[str, str] | None:
     return values or None
 
 
-def _dimensions(root: ET.Element) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for element in root.iter():
-        kind = _local(element.tag)
-        if kind not in {"Dimension", "TimeDimension", "MeasureDimension"}:
-            continue
-        dim_id = element.attrib.get("id")
-        if not dim_id:
-            continue
-        position_text = element.attrib.get("position")
-        try:
-            position = int(position_text) if position_text else None
-        except ValueError:
-            position = None
-        references: list[dict[str, str]] = []
-        for node in element.iter():
-            ref = _reference(node)
-            if ref is not None:
-                references.append(ref)
-        rows.append(
-            {
-                "id": dim_id,
-                "kind": kind,
-                "position": position,
-                "references": references,
-            }
-        )
-    rows.sort(key=lambda item: (item["position"] is None, item["position"] or 10_000, str(item["id"])))
-    return rows
-
-
 def _all_references(root: ET.Element) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     seen: set[tuple[tuple[str, str], ...]] = set()
@@ -105,31 +73,30 @@ def _all_references(root: ET.Element) -> list[dict[str, str]]:
     return rows
 
 
-def _summarize(label: str, response: ProbeResponse) -> dict[str, object]:
+def main() -> None:
+    response = _fetch(DATAFLOW_URL)
     root = ET.fromstring(response.content)
-    return {
-        "label": label,
+    references = _all_references(root)
+    payload = {
         "url": response.url,
         "content_type": response.content_type,
         "bytes": len(response.content),
         "sha256": hashlib.sha256(response.content).hexdigest(),
-        "dimensions": _dimensions(root),
-        "references": _all_references(root),
+        "references": references,
     }
+    print("RESULT_JSON: " + json.dumps(payload, sort_keys=True))
 
-
-def main() -> None:
-    results = [
-        _summarize("dataflow", _fetch(DATAFLOW_URL)),
-        _summarize("datastructure", _fetch(DATASTRUCTURE_URL)),
+    dsd_refs = [
+        ref
+        for ref in references
+        if ref.get("class", "").lower() in {"datastructure", "datastructuredefinition"}
     ]
-    print("RESULT_JSON: " + json.dumps(results, sort_keys=True))
-
-    dsd = next(result for result in results if result["label"] == "datastructure")
-    if not dsd["dimensions"]:
-        raise SystemExit("FINAL: BLOCKED - no CPI dimensions discovered")
+    if len(dsd_refs) != 1:
+        raise SystemExit(
+            f"FINAL: BLOCKED - expected exactly one CPI data-structure reference, found {len(dsd_refs)}"
+        )
     print(
-        "FINAL: PASS-READ-ONLY - bounded IMF CPI dataflow/DSD structure contract discovered; "
+        "FINAL: PASS-READ-ONLY - exact IMF CPI DSD reference discovered from the live dataflow; "
         "no data or cloud writes performed."
     )
 
