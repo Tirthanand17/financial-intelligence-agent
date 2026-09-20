@@ -19,6 +19,7 @@ class ExpansionCandidate:
     temporal_policy_validated: bool = False
     persistence_path_implemented: bool = False
     offline_exact_byte_contract_validated: bool = False
+    live_canary_runner_implemented: bool = False
     exact_byte_reconciliation_validated: bool = False
     bounded_live_canary_passed: bool = False
 
@@ -38,6 +39,7 @@ INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
         temporal_policy_validated=True,
         persistence_path_implemented=True,
         offline_exact_byte_contract_validated=True,
+        live_canary_runner_implemented=True,
     ),
     ExpansionCandidate(
         candidate_id="imf-sdmx-v2",
@@ -72,7 +74,8 @@ def _candidate_snapshot(candidate: ExpansionCandidate) -> dict[str, object]:
         "explicit_temporal_policy_validated": candidate.temporal_policy_validated,
         "persistence_path_implemented": candidate.persistence_path_implemented,
         "offline_exact_byte_contract_validated": candidate.offline_exact_byte_contract_validated,
-        # This remains false until a controlled live cross-store canary proves
+        "live_canary_runner_implemented": candidate.live_canary_runner_implemented,
+        # These remain false until a controlled live cross-store canary proves
         # B2/PostgreSQL/Qdrant reconciliation against actual provider bytes.
         "exact_byte_reconciliation_validated": candidate.exact_byte_reconciliation_validated,
         "bounded_live_canary_passed": candidate.bounded_live_canary_passed,
@@ -135,7 +138,8 @@ def build_international_expansion_readiness() -> dict[str, object]:
             "mutates_evidence": False,
             "note": (
                 "Candidate metadata documents the work still required before any international source is activated. "
-                "Offline persistence-path tests do not count as a live exact-byte reconciliation canary. "
+                "A manual live-canary runner may exist without having been executed; runner readiness does not equal "
+                "live-canary success. Offline persistence-path tests do not count as live exact-byte reconciliation. "
                 "The existing RBI/SEBI/NSE/MoSPI production source set remains unchanged."
             ),
         },
