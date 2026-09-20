@@ -46,6 +46,14 @@ INTERNATIONAL_EXPANSION_CANDIDATES: tuple[ExpansionCandidate, ...] = (
         api_url="https://sdmxcentral.imf.org/sdmx/v2/",
         documentation_url="https://data.imf.org/en/Resource-Pages/IMF-API",
         api_standard="SDMX 2.1/3.0",
+        adapter_implemented=True,
+        bounded_query_contract_validated=False,
+        temporal_policy_validated=True,
+        persistence_path_implemented=False,
+        offline_exact_byte_contract_validated=True,
+        live_canary_runner_implemented=False,
+        exact_byte_reconciliation_validated=False,
+        bounded_live_canary_passed=False,
     ),
 )
 
@@ -138,9 +146,9 @@ def build_international_expansion_readiness() -> dict[str, object]:
             "changes_ingestion": False,
             "mutates_evidence": False,
             "note": (
-                "World Bank passed bounded exact-byte and operational-monitor canaries and is now represented "
-                "as a bounded production monitor. IMF remains blocked pending fresh endpoint verification and "
-                "source-specific implementation."
+                "World Bank remains production-active under its bounded contract. The IMF CPI offline adapter "
+                "and temporal contract are implemented, but IMF remains blocked pending exact live query/auth "
+                "validation, source-policy review, persistence/reconciliation, and a bounded live canary."
             ),
         },
     }
