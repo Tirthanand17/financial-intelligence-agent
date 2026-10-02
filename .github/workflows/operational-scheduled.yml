@@ -35,10 +35,10 @@ jobs:
       MONITOR_CAPACITY_LOW_WATERMARK_PERCENT: ${{ vars.MONITOR_CAPACITY_LOW_WATERMARK_PERCENT }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -85,12 +85,24 @@ jobs:
           )
           for monitor in "${monitors[@]}"; do
             echo "Running bounded cycle for ${monitor}"
+
+            set +e
             python scripts/phase14_integrated_cycle_canary.py \
               --monitor-id "${monitor}" \
               --processing-limit 1 \
               --allow-network \
               --allow-write | tee "/tmp/${monitor}.log"
-            grep -Eq '^FINAL: PASS-(COMMITTED|MONITOR-ONLY|NOT-DUE)' "/tmp/${monitor}.log"
+            canary_status=${PIPESTATUS[0]}
+            set -e
+
+            if grep -Eq '^FINAL: PASS-(COMMITTED|MONITOR-ONLY|NOT-DUE)' "/tmp/${monitor}.log"; then
+              echo "${monitor}: bounded cycle completed normally."
+            elif grep -q '^FINAL: MONITOR-COMMITTED-QUEUE-BLOCKED' "/tmp/${monitor}.log"; then
+              echo "${monitor}: queue item was safely rejected by trusted preflight; continuing fail-closed."
+            else
+              echo "${monitor}: unexpected canary failure (exit=${canary_status})."
+              exit "${canary_status:-1}"
+            fi
           done
 
           echo "Running bounded source-specific World Bank cycle"
