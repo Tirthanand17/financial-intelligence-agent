@@ -4,6 +4,18 @@
 
 Source-grounded financial and economic intelligence system built around provenance, conservative trust promotion, evidence retention, and fail-closed automation.
 
+
+## Recruiter Snapshot
+
+| Signal | Evidence |
+|---|---|
+| **Backend & data engineering** | FastAPI, PostgreSQL, Qdrant vector search, S3-compatible evidence storage |
+| **Evidence quality** | Source allow-lists, provenance, hashes, claim versioning, entity/date attribution |
+| **Reliability** | Retry/backoff, idempotent discovery, capacity gates, audit events, fail-closed processing |
+| **Testing** | Latest documented production-hardening validation reports **342 passed** |
+| **Automation safety** | Monitoring, auto-ingestion, and trust promotion are independently gated; no broker execution exists |
+
+
 ## Current roadmap status
 
 Phases 1–17 are complete in the currently defined roadmap. Phase 17 added final production-hardening checks, live cross-store integrity validation, four-source retry/recovery replay, a bounded read-only stability soak, and an explicit storage-preservation rule. All three runtime gates remain disabled by default pending any separately approved operational activation.
