@@ -1,6 +1,8 @@
 # Financial Intelligence Agent
 
-Private, continuously learning financial and economic intelligence system.
+[![CI](https://github.com/Tirthanand17/financial-intelligence-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Tirthanand17/financial-intelligence-agent/actions/workflows/ci.yml)
+
+Source-grounded financial and economic intelligence system built around provenance, conservative trust promotion, evidence retention, and fail-closed automation.
 
 ## Current roadmap status
 
@@ -40,9 +42,11 @@ The trusted source registry currently includes RBI, SEBI, NSE, MoSPI, World Bank
 
 The completed roadmap does **not** authorize unrestricted crawling, autonomous financial actions, or unconditional trust promotion. Runtime activation remains separately gated and fail-closed.
 
+> **Scope:** this repository is an intelligence/research system, not an investment-advice service and not an autonomous trading bot. It does not place broker orders.
+
 ## Cloud-first architecture
 
-- **GitHub Private** — source code and version control
+- **GitHub** — source code, version control, CI, and public architecture review
 - **GitHub Codespaces** — development compute so the project does not consume the local PC disk
 - **FastAPI** — API layer
 - **Supabase PostgreSQL** — provenance, structured claims, attribution, verification/trust audits, and monitoring metadata
